@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-# Function to detect if we're in a ghq repository
+# Function to find the git repository root
 get_current_repo() {
     local current_dir="$(pwd)"
     local ghq_root="$HOME/ghq/github.com"
@@ -25,13 +25,11 @@ if [ -z "$1" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
 
 # gh wt list
 elif [ "$1" == "list" ]; then
-    current_repo=$(get_current_repo)
-    
-    if [ -n "$current_repo" ] && [ -d "$current_repo/.git" ] || [ -f "$current_repo/.git" ]; then
+    if current_repo=$(get_current_repo); then
         echo "Worktrees in current repository ($current_repo):"
         (cd "$current_repo" && git worktree list 2>/dev/null) || echo "No worktrees found"
     else
-        echo "Not in a ghq repository"
+        echo "Error: Not in a git repository"
         exit 1
     fi
 
@@ -43,12 +41,11 @@ elif [ "$1" == "add" ]; then
         exit 1
     fi
     
-    current_repo=$(get_current_repo)
-    if [ -n "$current_repo" ] && [ -d "$current_repo/.git" ] || [ -f "$current_repo/.git" ]; then
+    if current_repo=$(get_current_repo); then
         selected_dir="$current_repo"
         echo "Using current repository: $selected_dir"
     else
-        echo "Not in a ghq repository"
+        echo "Error: Not in a git repository"
         exit 1
     fi
     
@@ -77,9 +74,7 @@ elif [ "$1" == "add" ]; then
 
 # gh wt remove
 elif [ "$1" == "remove" ] || [ "$1" == "rm" ]; then
-    current_repo=$(get_current_repo)
-    
-    if [ -n "$current_repo" ] && [ -d "$current_repo/.git" ] || [ -f "$current_repo/.git" ]; then
+    if current_repo=$(get_current_repo); then
         temp_file=$(mktemp)
         echo "Available worktrees in current repository:"
         (cd "$current_repo" && git worktree list --porcelain 2>/dev/null | grep "^worktree " | sed 's/^worktree //' >> "$temp_file") || true
@@ -90,7 +85,7 @@ elif [ "$1" == "remove" ] || [ "$1" == "rm" ]; then
             exit 0
         fi
         
-        selected_worktree=$(cat "$temp_file" | fzf --prompt="Select worktree to remove: ")
+        selected_worktree=$(cat "$temp_file" | fzf --prompt="Select worktree to remove: " || true)
         rm "$temp_file"
         
         if [ -n "$selected_worktree" ]; then
@@ -99,15 +94,13 @@ elif [ "$1" == "remove" ] || [ "$1" == "rm" ]; then
             echo "Worktree removed successfully!"
         fi
     else
-        echo "Not in a ghq repository"
+        echo "Error: Not in a git repository"
         exit 1
     fi
 
 # gh wt <command>
 else
-    current_repo=$(get_current_repo)
-    
-    if [ -n "$current_repo" ] && [ -d "$current_repo/.git" ] || [ -f "$current_repo/.git" ]; then
+    if current_repo=$(get_current_repo); then
         temp_file=$(mktemp)
         (cd "$current_repo" && git worktree list --porcelain 2>/dev/null | grep "^worktree " | sed 's/^worktree //' >> "$temp_file") || true
         
@@ -117,14 +110,14 @@ else
             exit 0
         fi
         
-        selected_worktree=$(cat "$temp_file" | fzf --prompt="Select worktree: ")
+        selected_worktree=$(cat "$temp_file" | fzf --prompt="Select worktree: " || true)
         rm "$temp_file"
         
         if [ -n "$selected_worktree" ]; then
             exec "$@" "$selected_worktree"
         fi
     else
-        echo "Not in a ghq repository"
+        echo "Error: Not in a git repository"
         exit 1
     fi
 fi

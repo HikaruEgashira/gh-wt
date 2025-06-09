@@ -1,13 +1,13 @@
-# gh-wt
+<h2 align="center">
+    <p align="center">gh-wt</p>
+</h2>
 
-Git worktree management extension for GitHub CLI, designed to work with ghq repositories.
+<h3 align="center">
+🔹<a  href="https://github.com/HikaruEgashira/gh-wt/issues">Report Bug</a> &nbsp; &nbsp;
+🔹<a  href="https://github.com/HikaruEgashira/gh-wt/issues">Request Feature</a>
+</h3>
 
-## Features
-
-- 🌳 Manage git worktrees in ghq repositories
-- 🔍 Interactive worktree selection with fzf
-- 📁 Context-aware: works only within ghq repositories
-- ⚡ Simple and fast commands
+Git worktree management extension for GitHub CLI.
 
 ## Installation
 
@@ -40,20 +40,17 @@ gh wt remove
 
 # Open a worktree in VS Code (interactive selection)
 gh wt code
-
-# Change directory to a worktree (interactive selection)
-gh wt cd
 ```
 
 ## Requirements
 
 - [GitHub CLI](https://cli.github.com/)
 - [fzf](https://github.com/junegunn/fzf)
-- Must be used within a ghq repository structure (`~/ghq/github.com/owner/repo`)
+- Must be used within a git repository
 
 ## How it works
 
-`gh wt` detects if you're currently in a ghq repository (`~/ghq/github.com/owner/repo`) and operates only on that repository's worktrees. If you're not in a ghq repository, it will exit with an error message.
+`gh wt` detects if you're currently in a git repository and operates on that repository's worktrees. If you're not in a git repository, it will exit with an error message.
 
 ## Related
 
