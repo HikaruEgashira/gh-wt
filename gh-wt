@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+set -e
+
+# Function to detect if we're in a ghq repository
+get_current_repo() {
+    local current_dir="$(pwd)"
+    local ghq_root="$HOME/ghq/github.com"
+    
+    # Check if current directory is under ghq
+    if [[ "$current_dir" == "$ghq_root"* ]]; then
+        # Extract repo path (remove ghq_root prefix and get first 2 path components)
+        local relative_path="${current_dir#$ghq_root/}"
+        local repo_path=$(echo "$relative_path" | cut -d'/' -f1-2)
+        echo "$ghq_root/$repo_path"
+    fi
+}
+
+if [ -z "$1" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+    echo "Usage:"
+    echo "  gh wt list          ... List git worktrees in current repository"
+    echo "  gh wt add <branch> [path] ... Add a new worktree in current repository"
+    echo "  gh wt remove        ... Remove a worktree in current repository"
+    echo "  gh wt *your_command* ... Search via fzf and run *your_command* in the selected worktree"
+    exit 0
+
+# gh wt list
+elif [ "$1" == "list" ]; then
+    current_repo=$(get_current_repo)
+    
+    if [ -n "$current_repo" ] && [ -d "$current_repo/.git" ] || [ -f "$current_repo/.git" ]; then
+        echo "Worktrees in current repository ($current_repo):"
+        (cd "$current_repo" && git worktree list 2>/dev/null) || echo "No worktrees found"
+    else
+        echo "Not in a ghq repository"
+        exit 1
+    fi
+
+# gh wt add
+elif [ "$1" == "add" ]; then
+    if [ -z "$2" ]; then
+        echo "Error: Branch name is required"
+        echo "Usage: gh wt add <branch> [path]"
+        exit 1
+    fi
+    
+    current_repo=$(get_current_repo)
+    if [ -n "$current_repo" ] && [ -d "$current_repo/.git" ] || [ -f "$current_repo/.git" ]; then
+        selected_dir="$current_repo"
+        echo "Using current repository: $selected_dir"
+    else
+        echo "Not in a ghq repository"
+        exit 1
+    fi
+    
+    branch="$2"
+    if [ -n "$3" ]; then
+        worktree_path="$3"
+    else
+        repo_name=$(basename "$selected_dir")
+        worktree_path="$selected_dir-$branch"
+    fi
+    
+    echo "Creating worktree for branch '$branch' at '$worktree_path'"
+    (cd "$selected_dir" && git worktree add "$worktree_path" "$branch")
+    echo "Worktree created successfully!"
+
+# gh wt remove
+elif [ "$1" == "remove" ] || [ "$1" == "rm" ]; then
+    current_repo=$(get_current_repo)
+    
+    if [ -n "$current_repo" ] && [ -d "$current_repo/.git" ] || [ -f "$current_repo/.git" ]; then
+        temp_file=$(mktemp)
+        echo "Available worktrees in current repository:"
+        (cd "$current_repo" && git worktree list --porcelain 2>/dev/null | grep "^worktree " | sed 's/^worktree //' >> "$temp_file") || true
+        
+        if [ ! -s "$temp_file" ]; then
+            echo "No worktrees found"
+            rm "$temp_file"
+            exit 0
+        fi
+        
+        selected_worktree=$(cat "$temp_file" | fzf --prompt="Select worktree to remove: ")
+        rm "$temp_file"
+        
+        if [ -n "$selected_worktree" ]; then
+            echo "Removing worktree: $selected_worktree"
+            (cd "$current_repo" && git worktree remove "$selected_worktree")
+            echo "Worktree removed successfully!"
+        fi
+    else
+        echo "Not in a ghq repository"
+        exit 1
+    fi
+
+# gh wt <command>
+else
+    current_repo=$(get_current_repo)
+    
+    if [ -n "$current_repo" ] && [ -d "$current_repo/.git" ] || [ -f "$current_repo/.git" ]; then
+        temp_file=$(mktemp)
+        (cd "$current_repo" && git worktree list --porcelain 2>/dev/null | grep "^worktree " | sed 's/^worktree //' >> "$temp_file") || true
+        
+        if [ ! -s "$temp_file" ]; then
+            echo "No worktrees found"
+            rm "$temp_file"
+            exit 0
+        fi
+        
+        selected_worktree=$(cat "$temp_file" | fzf --prompt="Select worktree: ")
+        rm "$temp_file"
+        
+        if [ -n "$selected_worktree" ]; then
+            exec "$@" "$selected_worktree"
+        fi
+    else
+        echo "Not in a ghq repository"
+        exit 1
+    fi
+fi
