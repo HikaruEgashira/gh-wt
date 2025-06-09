@@ -61,7 +61,18 @@ elif [ "$1" == "add" ]; then
     fi
     
     echo "Creating worktree for branch '$branch' at '$worktree_path'"
-    (cd "$selected_dir" && git worktree add "$worktree_path" "$branch")
+    
+    # Check if branch exists locally or remotely
+    if (cd "$selected_dir" && git show-ref --verify --quiet refs/heads/"$branch"); then
+        # Local branch exists
+        (cd "$selected_dir" && git worktree add "$worktree_path" "$branch")
+    elif (cd "$selected_dir" && git show-ref --verify --quiet refs/remotes/origin/"$branch"); then
+        # Remote branch exists, create local tracking branch
+        (cd "$selected_dir" && git worktree add "$worktree_path" -b "$branch" "origin/$branch")
+    else
+        # Branch doesn't exist, create new branch
+        (cd "$selected_dir" && git worktree add "$worktree_path" -b "$branch")
+    fi
     echo "Worktree created successfully!"
 
 # gh wt remove
