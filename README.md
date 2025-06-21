@@ -23,7 +23,8 @@ Usage:
   gh wt list          ... List git worktrees in current repository
   gh wt add <branch> [path] ... Add a new worktree in current repository
   gh wt remove        ... Remove a worktree in current repository
-  gh wt *your_command* ... Search via fzf and run *your_command* in the selected worktree
+  gh wt -- <command>  ... Search via fzf and run <command> in the selected worktree
+  gh wt <command>     ... Search via fzf and run <command> with selected worktree as argument
 ```
 
 ### Examples
@@ -38,9 +39,26 @@ gh wt add feature-branch
 # Remove a worktree (interactive selection)
 gh wt remove
 
-# Open a worktree in VS Code (interactive selection)
+# Open a worktree in VS Code (path as argument)
 gh wt code
+
+# Run commands in the selected worktree directory
+gh wt -- claude
+gh wt -- git status
+gh wt -- npm test
 ```
+
+## Command Execution Modes
+
+There are two ways to execute commands with selected worktrees:
+
+1. **`gh wt <command>`** - Passes the worktree path as an argument to the command
+   - Example: `gh wt code` → executes `code /path/to/selected/worktree`
+   - Useful for editors and tools that accept directory paths as arguments
+
+2. **`gh wt -- <command>`** - Changes to the worktree directory and executes the command
+   - Example: `gh wt -- git status` → changes to worktree directory then runs `git status`
+   - Useful for commands that need to run within the project directory
 
 ## Requirements
 
