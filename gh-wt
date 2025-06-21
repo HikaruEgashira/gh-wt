@@ -18,6 +18,7 @@ get_current_repo() {
 if [ -z "$1" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
     echo "Usage:"
     echo "  gh wt list          ... List git worktrees in current repository"
+    echo "  gh wt init <name>   ... Initialize new repository with worktree structure"
     echo "  gh wt add <branch> [path] ... Add a new worktree in current repository"
     echo "  gh wt remove        ... Remove a worktree in current repository"
     echo "  gh wt -- <command>  ... Search via fzf and run <command> in the selected worktree"
@@ -33,6 +34,42 @@ elif [ "$1" == "list" ]; then
         echo "Error: Not in a git repository"
         exit 1
     fi
+
+# gh wt init
+elif [ "$1" == "init" ]; then
+    if [ -z "$2" ]; then
+        echo "Error: Repository name is required"
+        echo "Usage: gh wt init <name>"
+        exit 1
+    fi
+    
+    repo_name="$2"
+    repo_path="$HOME/ghq/github.com/$(gh api user --jq .login)/$repo_name"
+    
+    # Create directory structure
+    mkdir -p "$repo_path"
+    cd "$repo_path"
+    
+    # Initialize git repository
+    git init
+    echo "# $repo_name" > README.md
+    git add README.md
+    git commit -m "Initial commit"
+    
+    # Create and push to GitHub
+    gh repo create "$repo_name" --public --source . --push
+    
+    # Create develop worktree
+    develop_path="$repo_path-develop"
+    git worktree add "$develop_path" -b develop
+    
+    echo "Repository initialized with worktree structure:"
+    echo "  Main: $repo_path"
+    echo "  Develop: $develop_path"
+    echo ""
+    echo "Next steps:"
+    echo "  cd $repo_path"
+    echo "  gh ws init  # Create VSCode workspace"
 
 # gh wt add
 elif [ "$1" == "add" ]; then
