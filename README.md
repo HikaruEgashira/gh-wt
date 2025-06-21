@@ -70,6 +70,15 @@ There are two ways to execute commands with selected worktrees:
 
 `gh wt` detects if you're currently in a git repository and operates on that repository's worktrees. If you're not in a git repository, it will exit with an error message.
 
-## Related
+## Integration with other gh extensions
 
-- [gh-q](https://github.com/HikaruEgashira/gh-q) - ghq-like repository management for GitHub CLI
+Works well with:
+- [`gh-q`](https://github.com/HikaruEgashira/gh-q): Quick repository navigation
+- [`gh-ws`](https://github.com/HikaruEgashira/gh-ws): VSCode workspace management with worktrees
+
+```bash
+# Example workflow
+gh q                    # Select repository
+gh wt add feature/new   # Create new worktree
+gh ws init              # Create/update workspace
+```
