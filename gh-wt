@@ -20,7 +20,8 @@ if [ -z "$1" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
     echo "  gh wt list          ... List git worktrees in current repository"
     echo "  gh wt add <branch> [path] ... Add a new worktree in current repository"
     echo "  gh wt remove        ... Remove a worktree in current repository"
-    echo "  gh wt *your_command* ... Search via fzf and run *your_command* in the selected worktree"
+    echo "  gh wt -- <command>  ... Search via fzf and run <command> in the selected worktree"
+    echo "  gh wt <command>     ... Search via fzf and run <command> with selected worktree as argument"
     exit 0
 
 # gh wt list
@@ -92,6 +93,31 @@ elif [ "$1" == "remove" ] || [ "$1" == "rm" ]; then
             echo "Removing worktree: $selected_worktree"
             (cd "$current_repo" && git worktree remove "$selected_worktree")
             echo "Worktree removed successfully!"
+        fi
+    else
+        echo "Error: Not in a git repository"
+        exit 1
+    fi
+
+# gh wt -- <command>
+elif [ "$1" == "--" ]; then
+    shift  # Remove the "--" from arguments
+    if current_repo=$(get_current_repo); then
+        temp_file=$(mktemp)
+        (cd "$current_repo" && git worktree list --porcelain 2>/dev/null | grep "^worktree " | sed 's/^worktree //' >> "$temp_file") || true
+        
+        if [ ! -s "$temp_file" ]; then
+            echo "No worktrees found"
+            rm "$temp_file"
+            exit 0
+        fi
+        
+        selected_worktree=$(cat "$temp_file" | fzf --prompt="Select worktree: " || true)
+        rm "$temp_file"
+        
+        if [ -n "$selected_worktree" ]; then
+            cd "$selected_worktree"
+            exec "$@"
         fi
     else
         echo "Error: Not in a git repository"
