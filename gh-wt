@@ -91,7 +91,7 @@ elif [ "$1" == "remove" ] || [ "$1" == "rm" ]; then
         
         if [ -n "$selected_worktree" ]; then
             echo "Removing worktree: $selected_worktree"
-            (cd "$current_repo" && git worktree remove "$selected_worktree")
+            (cd "$current_repo" && git worktree remove --force "$selected_worktree")
             echo "Worktree removed successfully!"
         fi
     else
