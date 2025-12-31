@@ -70,6 +70,31 @@ There are two ways to execute commands with selected worktrees:
 
 `gh wt` detects if you're currently in a git repository and operates on that repository's worktrees. If you're not in a git repository, it will exit with an error message.
 
+## Auto Cache
+
+When creating a worktree with `gh wt add`, dependencies are automatically detected and cached:
+
+| Language | Detection | Package Manager | Cached Directory |
+|----------|-----------|-----------------|------------------|
+| Node.js | pnpm-lock.yaml, yarn.lock, package-lock.json | pnpm, yarn, npm | node_modules |
+| Python | uv.lock, poetry.lock, requirements.txt | uv, poetry, pip | .venv |
+| Rust | Cargo.lock | cargo | target |
+| Go | go.sum | go mod | (global cache) |
+
+Cached dependencies are restored via symlink for instant setup.
+
+### Configuration
+
+Create `.gh-wt.toml` in your repository to customize behavior:
+
+```toml
+[cache]
+enabled = false  # Disable caching for this repository
+
+[setup]
+commands = ["cp .env.example .env"]  # Run after dependency installation
+```
+
 ## Integration with other gh extensions
 
 Works well with:
