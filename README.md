@@ -79,6 +79,11 @@ When creating a worktree, dependencies are automatically linked to the parent re
 | Node.js | node_modules |
 | Python | .venv |
 | Rust | target |
+| Go | vendor |
+| Ruby | vendor/bundle |
+| Swift | .build |
+| Zig | zig-cache, .zig-cache |
+| Deno | deno_dir |
 
 ## Integration with other gh extensions
 
