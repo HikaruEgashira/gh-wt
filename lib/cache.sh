@@ -5,7 +5,8 @@ get_parent_repo() {
     git_dir=$(git -C "$1" rev-parse --git-dir 2>/dev/null) || return 1
     [[ "$git_dir" == *"/worktrees/"* ]] || return 1
     local p="${git_dir%/worktrees/*}"
-    echo "${p%.git}"
+    p="${p%.git}"
+    echo "${p%/}"
 }
 
 detect_target_dir() {
