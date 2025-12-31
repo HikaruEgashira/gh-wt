@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Function to find the git repository root
 get_current_repo() {
@@ -71,6 +72,7 @@ elif [ "$1" == "add" ]; then
         # Branch doesn't exist, create new branch
         (cd "$selected_dir" && git worktree add "$worktree_path" -b "$branch")
     fi
+    [[ -f "$SCRIPT_DIR/lib/cache.sh" ]] && source "$SCRIPT_DIR/lib/cache.sh" && setup_worktree "$worktree_path"
     echo "Worktree created successfully!"
 
 # gh wt remove
