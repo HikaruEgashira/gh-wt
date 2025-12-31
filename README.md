@@ -74,8 +74,8 @@ There are two ways to execute commands with selected worktrees:
 
 When creating a worktree, dependencies are automatically linked to the parent repository:
 
-| Language | Shared Directory |
-|----------|-----------------|
+| Source | Shared Directory |
+|--------|-----------------|
 | Node.js | node_modules |
 | Python | .venv |
 | Rust | target |
@@ -84,6 +84,7 @@ When creating a worktree, dependencies are automatically linked to the parent re
 | Swift | .build |
 | Zig | zig-cache, .zig-cache |
 | Deno | deno_dir |
+| .gitignore | Any directory listed in .gitignore |
 
 ## Integration with other gh extensions
 
