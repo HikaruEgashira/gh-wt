@@ -33,10 +33,46 @@ detect_target_dirs() {
     printf '%s\n' "${dirs[@]}" | sort -u
 }
 
+detect_gitignore_dirs() {
+    local worktree="$1"
+    local parent="$2"
+    local gitignore="$worktree/.gitignore"
+
+    [[ ! -f "$gitignore" ]] && return 1
+
+    local dirs=()
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip empty lines and comments
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        # Skip negation patterns
+        [[ "$line" == \!* ]] && continue
+        # Remove trailing slash if present
+        line="${line%/}"
+        # Skip patterns with wildcards (*, ?, [)
+        [[ "$line" == *[\*\?\[]* ]] && continue
+        # Skip absolute paths starting with /
+        [[ "$line" == /* ]] && line="${line:1}"
+        # Only include if it's a directory in parent repo
+        [[ -d "$parent/$line" ]] && dirs+=("$line")
+    done < "$gitignore"
+
+    [[ ${#dirs[@]} -eq 0 ]] && return 1
+    printf '%s\n' "${dirs[@]}" | sort -u
+}
+
 setup_worktree() {
     local parent=$(get_parent_repo "$1") || return 0
-    local targets
-    targets=$(detect_target_dirs "$1") || return 0
+    local targets=""
+    local lang_targets gitignore_targets
+
+    # Collect targets from language detection
+    lang_targets=$(detect_target_dirs "$1" 2>/dev/null) || true
+    # Collect targets from .gitignore
+    gitignore_targets=$(detect_gitignore_dirs "$1" "$parent" 2>/dev/null) || true
+
+    # Merge and deduplicate
+    targets=$(printf '%s\n%s' "$lang_targets" "$gitignore_targets" | grep -v '^$' | sort -u)
+    [[ -z "$targets" ]] && return 0
 
     local target
     while IFS= read -r target; do
