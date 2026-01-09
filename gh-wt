@@ -21,6 +21,7 @@ if [ -z "$1" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
     echo "  gh wt list          ... List git worktrees in current repository"
     echo "  gh wt add <branch> [path] ... Add a new worktree in current repository"
     echo "  gh wt remove        ... Remove a worktree in current repository"
+    echo "  gh wt co <pr-number>  ... Checkout a PR as a new worktree"
     echo "  gh wt -- <command>  ... Search via fzf and run <command> in the selected worktree"
     echo "  gh wt <command>     ... Search via fzf and run <command> with selected worktree as argument"
     exit 0
@@ -71,6 +72,51 @@ elif [ "$1" == "add" ]; then
     else
         # Branch doesn't exist, create new branch
         (cd "$selected_dir" && git worktree add "$worktree_path" -b "$branch")
+    fi
+    type setup_worktree &>/dev/null && setup_worktree "$worktree_path"
+    echo "Worktree created successfully!"
+
+# gh wt co <pr-number>
+elif [ "$1" == "co" ]; then
+    if [ -z "$2" ]; then
+        echo "Error: PR number is required"
+        echo "Usage: gh wt co <pr-number>"
+        exit 1
+    fi
+
+    pr_number="$2"
+
+    # Get branch name from PR
+    branch=$(gh pr view "$pr_number" --json headRefName -q .headRefName 2>/dev/null)
+    if [ -z "$branch" ]; then
+        echo "Error: Could not find PR #$pr_number"
+        exit 1
+    fi
+
+    echo "PR #$pr_number -> branch: $branch"
+
+    if current_repo=$(get_current_repo); then
+        selected_dir="$current_repo"
+    else
+        echo "Error: Not in a git repository"
+        exit 1
+    fi
+
+    worktree_path="$selected_dir-$branch"
+
+    echo "Creating worktree for branch '$branch' at '$worktree_path'"
+
+    # Fetch latest from remote
+    (cd "$selected_dir" && git fetch origin)
+
+    # Check if branch exists locally or remotely
+    if (cd "$selected_dir" && git show-ref --verify --quiet refs/heads/"$branch"); then
+        (cd "$selected_dir" && git worktree add "$worktree_path" "$branch")
+    elif (cd "$selected_dir" && git show-ref --verify --quiet refs/remotes/origin/"$branch"); then
+        (cd "$selected_dir" && git worktree add "$worktree_path" -b "$branch" "origin/$branch")
+    else
+        echo "Error: Branch '$branch' not found locally or remotely"
+        exit 1
     fi
     type setup_worktree &>/dev/null && setup_worktree "$worktree_path"
     echo "Worktree created successfully!"
