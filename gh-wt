@@ -38,7 +38,7 @@ elif [ "$1" == "completion" ]; then
         cat "$completion_file"
     else
         echo "Error: Completion file not found for shell: $shell" >&2
-        echo "Available: bash, zsh" >&2
+        echo "Available: bash, zsh, fish" >&2
         exit 1
     fi
 

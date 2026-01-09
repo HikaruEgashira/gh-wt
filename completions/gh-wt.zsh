@@ -74,7 +74,7 @@ _gh_wt() {
                     ;;
                 completion)
                     local -a shells
-                    shells=('bash:Bash completion' 'zsh:Zsh completion')
+                    shells=('bash:Bash completion' 'zsh:Zsh completion' 'fish:Fish completion')
                     _describe -t shells 'shell' shells
                     ;;
                 *)

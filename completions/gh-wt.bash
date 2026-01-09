@@ -50,7 +50,7 @@ _gh_wt() {
             return
             ;;
         completion)
-            COMPREPLY=($(compgen -W "bash zsh" -- "${cur}"))
+            COMPREPLY=($(compgen -W "bash zsh fish" -- "${cur}"))
             return
             ;;
     esac
