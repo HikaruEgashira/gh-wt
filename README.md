@@ -66,6 +66,29 @@ There are two ways to execute commands with selected worktrees:
 - [fzf](https://github.com/junegunn/fzf)
 - Must be used within a git repository
 
+## Shell Completion
+
+### Bash
+
+```bash
+# Add to ~/.bashrc
+eval "$(gh wt completion bash)"
+```
+
+### Zsh
+
+```bash
+# Add to ~/.zshrc (before compinit)
+eval "$(gh wt completion zsh)"
+```
+
+### Completion Features
+
+- Subcommands: `list`, `add`, `remove`, `rm`, `--`, `completion`
+- Branch names for `gh wt add` (local and remote)
+- Worktree paths for `gh wt remove`
+- Common commands: `cd`, `code`, `nvim`, `vim`
+
 ## How it works
 
 `gh wt` detects if you're currently in a git repository and operates on that repository's worktrees. If you're not in a git repository, it will exit with an error message.
