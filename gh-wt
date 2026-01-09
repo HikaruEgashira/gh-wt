@@ -24,23 +24,7 @@ if [ -z "$1" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
     echo "  gh wt co <pr-number>  ... Checkout a PR as a new worktree"
     echo "  gh wt -- <command>  ... Search via fzf and run <command> in the selected worktree"
     echo "  gh wt <command>     ... Search via fzf and run <command> with selected worktree as argument"
-    echo "  gh wt completion <shell> ... Output shell completion script (bash|zsh)"
     exit 0
-
-# gh wt completion
-elif [ "$1" == "completion" ]; then
-    shell="${2:-bash}"
-    completion_file="$SCRIPT_DIR/completions/gh-wt.$shell"
-    if [[ "$shell" == "zsh" ]]; then
-        completion_file="$SCRIPT_DIR/completions/gh-wt.zsh"
-    fi
-    if [[ -f "$completion_file" ]]; then
-        cat "$completion_file"
-    else
-        echo "Error: Completion file not found for shell: $shell" >&2
-        echo "Available: bash, zsh, fish" >&2
-        exit 1
-    fi
 
 # gh wt list
 elif [ "$1" == "list" ]; then
