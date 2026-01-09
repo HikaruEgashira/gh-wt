@@ -87,4 +87,4 @@ _gh_wt() {
     esac
 }
 
-_gh_wt "$@"
+compdef _gh_wt 'gh wt'
