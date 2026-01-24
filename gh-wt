@@ -1,20 +1,8 @@
 #!/usr/bin/env bash
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+[[ -f "$SCRIPT_DIR/lib/worktree.sh" ]] && source "$SCRIPT_DIR/lib/worktree.sh"
 [[ -f "$SCRIPT_DIR/lib/cache.sh" ]] && source "$SCRIPT_DIR/lib/cache.sh"
-
-get_current_repo() {
-    local current_dir="$(pwd)"
-    local ghq_root="$HOME/ghq/github.com"
-    
-    # Check if current directory is under ghq
-    if [[ "$current_dir" == "$ghq_root"* ]]; then
-        # Extract repo path (remove ghq_root prefix and get first 2 path components)
-        local relative_path="${current_dir#$ghq_root/}"
-        local repo_path=$(echo "$relative_path" | cut -d'/' -f1-2)
-        echo "$ghq_root/$repo_path"
-    fi
-}
 
 if [ -z "$1" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
     echo "Usage:"
@@ -28,13 +16,9 @@ if [ -z "$1" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
 
 # gh wt list
 elif [ "$1" == "list" ]; then
-    if current_repo=$(get_current_repo); then
-        echo "Worktrees in current repository ($current_repo):"
-        (cd "$current_repo" && git worktree list 2>/dev/null) || echo "No worktrees found"
-    else
-        echo "Error: Not in a git repository"
-        exit 1
-    fi
+    current_repo=$(require_current_repo)
+    echo "Worktrees in current repository ($current_repo):"
+    (cd "$current_repo" && git worktree list 2>/dev/null) || echo "No worktrees found"
 
 # gh wt add
 elif [ "$1" == "add" ]; then
@@ -43,36 +27,19 @@ elif [ "$1" == "add" ]; then
         echo "Usage: gh wt add <branch> [path]"
         exit 1
     fi
-    
-    if current_repo=$(get_current_repo); then
-        selected_dir="$current_repo"
-        echo "Using current repository: $selected_dir"
-    else
-        echo "Error: Not in a git repository"
-        exit 1
-    fi
-    
+
+    current_repo=$(require_current_repo)
+    echo "Using current repository: $current_repo"
+
     branch="$2"
     if [ -n "$3" ]; then
         worktree_path="$3"
     else
-        repo_name=$(basename "$selected_dir")
-        worktree_path="$selected_dir-$branch"
+        worktree_path="$current_repo-$branch"
     fi
-    
+
     echo "Creating worktree for branch '$branch' at '$worktree_path'"
-    
-    # Check if branch exists locally or remotely
-    if (cd "$selected_dir" && git show-ref --verify --quiet refs/heads/"$branch"); then
-        # Local branch exists
-        (cd "$selected_dir" && git worktree add "$worktree_path" "$branch")
-    elif (cd "$selected_dir" && git show-ref --verify --quiet refs/remotes/origin/"$branch"); then
-        # Remote branch exists, create local tracking branch
-        (cd "$selected_dir" && git worktree add "$worktree_path" -b "$branch" "origin/$branch")
-    else
-        # Branch doesn't exist, create new branch
-        (cd "$selected_dir" && git worktree add "$worktree_path" -b "$branch")
-    fi
+    add_worktree_for_branch "$current_repo" "$branch" "$worktree_path" true
     type setup_worktree &>/dev/null && setup_worktree "$worktree_path"
     echo "Worktree created successfully!"
 
@@ -86,7 +53,6 @@ elif [ "$1" == "co" ]; then
 
     pr_number="$2"
 
-    # Get branch name from PR
     branch=$(gh pr view "$pr_number" --json headRefName -q .headRefName 2>/dev/null)
     if [ -z "$branch" ]; then
         echo "Error: Could not find PR #$pr_number"
@@ -95,103 +61,48 @@ elif [ "$1" == "co" ]; then
 
     echo "PR #$pr_number -> branch: $branch"
 
-    if current_repo=$(get_current_repo); then
-        selected_dir="$current_repo"
-    else
-        echo "Error: Not in a git repository"
-        exit 1
-    fi
-
-    worktree_path="$selected_dir-$branch"
+    current_repo=$(require_current_repo)
+    worktree_path="$current_repo-$branch"
 
     echo "Creating worktree for branch '$branch' at '$worktree_path'"
 
-    # Fetch latest from remote
-    (cd "$selected_dir" && git fetch origin)
-
-    # Check if branch exists locally or remotely
-    if (cd "$selected_dir" && git show-ref --verify --quiet refs/heads/"$branch"); then
-        (cd "$selected_dir" && git worktree add "$worktree_path" "$branch")
-    elif (cd "$selected_dir" && git show-ref --verify --quiet refs/remotes/origin/"$branch"); then
-        (cd "$selected_dir" && git worktree add "$worktree_path" -b "$branch" "origin/$branch")
-    else
-        echo "Error: Branch '$branch' not found locally or remotely"
-        exit 1
-    fi
+    (cd "$current_repo" && git fetch origin)
+    add_worktree_for_branch "$current_repo" "$branch" "$worktree_path" false
     type setup_worktree &>/dev/null && setup_worktree "$worktree_path"
     echo "Worktree created successfully!"
 
 # gh wt remove
 elif [ "$1" == "remove" ] || [ "$1" == "rm" ]; then
-    if current_repo=$(get_current_repo); then
-        temp_file=$(mktemp)
-        echo "Available worktrees in current repository:"
-        (cd "$current_repo" && git worktree list --porcelain 2>/dev/null | grep "^worktree " | sed 's/^worktree //' >> "$temp_file") || true
-        
-        if [ ! -s "$temp_file" ]; then
-            echo "No worktrees found"
-            rm "$temp_file"
-            exit 0
-        fi
-        
-        selected_worktree=$(cat "$temp_file" | fzf --prompt="Select worktree to remove: " || true)
-        rm "$temp_file"
-        
-        if [ -n "$selected_worktree" ]; then
-            echo "Removing worktree: $selected_worktree"
-            (cd "$current_repo" && git worktree remove --force "$selected_worktree")
-            echo "Worktree removed successfully!"
-        fi
-    else
-        echo "Error: Not in a git repository"
-        exit 1
+    current_repo=$(require_current_repo)
+    echo "Available worktrees in current repository:"
+
+    selected_worktree=$(select_worktree "$current_repo" "Select worktree to remove: ") || exit 0
+
+    if [ -n "$selected_worktree" ]; then
+        echo "Removing worktree: $selected_worktree"
+        (cd "$current_repo" && git worktree remove --force "$selected_worktree")
+        echo "Worktree removed successfully!"
     fi
 
 # gh wt -- <command>
 elif [ "$1" == "--" ]; then
-    shift  # Remove the "--" from arguments
-    if current_repo=$(get_current_repo); then
-        temp_file=$(mktemp)
-        (cd "$current_repo" && git worktree list --porcelain 2>/dev/null | grep "^worktree " | sed 's/^worktree //' >> "$temp_file") || true
-        
-        if [ ! -s "$temp_file" ]; then
-            echo "No worktrees found"
-            rm "$temp_file"
-            exit 0
-        fi
-        
-        selected_worktree=$(cat "$temp_file" | fzf --prompt="Select worktree: " || true)
-        rm "$temp_file"
-        
-        if [ -n "$selected_worktree" ]; then
-            cd "$selected_worktree"
-            exec "$@"
-        fi
-    else
-        echo "Error: Not in a git repository"
-        exit 1
+    shift
+    current_repo=$(require_current_repo)
+
+    selected_worktree=$(select_worktree "$current_repo") || exit 0
+
+    if [ -n "$selected_worktree" ]; then
+        cd "$selected_worktree"
+        exec "$@"
     fi
 
 # gh wt <command>
 else
-    if current_repo=$(get_current_repo); then
-        temp_file=$(mktemp)
-        (cd "$current_repo" && git worktree list --porcelain 2>/dev/null | grep "^worktree " | sed 's/^worktree //' >> "$temp_file") || true
-        
-        if [ ! -s "$temp_file" ]; then
-            echo "No worktrees found"
-            rm "$temp_file"
-            exit 0
-        fi
-        
-        selected_worktree=$(cat "$temp_file" | fzf --prompt="Select worktree: " || true)
-        rm "$temp_file"
-        
-        if [ -n "$selected_worktree" ]; then
-            exec "$@" "$selected_worktree"
-        fi
-    else
-        echo "Error: Not in a git repository"
-        exit 1
+    current_repo=$(require_current_repo)
+
+    selected_worktree=$(select_worktree "$current_repo") || exit 0
+
+    if [ -n "$selected_worktree" ]; then
+        exec "$@" "$selected_worktree"
     fi
 fi
