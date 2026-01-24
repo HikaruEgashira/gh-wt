@@ -10,9 +10,9 @@
 
 #### Example
 
-```bash
-gh extension install HikaruEgashira/gh-wt
+Install `gh extension install HikaruEgashira/gh-wt`
 
+```bash
 # List worktrees in current repository
 gh wt list
 
