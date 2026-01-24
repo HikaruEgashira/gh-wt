@@ -1,7 +1,7 @@
-<p align="center">
+<div align="center">
     <h2 align="center">gh-wt</h2>
     <small align="center">Explenable, worktree management</small>
-</p>
+</div>
 
 <h3 align="center">
 🔹<a  href="https://github.com/HikaruEgashira/gh-wt/issues">Report Bug</a> &nbsp; &nbsp;
