@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 
-# Get the root repository path from current directory
 get_current_repo() {
     local current_dir="$(pwd)"
     local ghq_root="$HOME/ghq/github.com"
@@ -12,7 +11,6 @@ get_current_repo() {
     fi
 }
 
-# Get current repo or exit with error
 require_current_repo() {
     local repo
     if repo=$(get_current_repo) && [ -n "$repo" ]; then
@@ -23,9 +21,6 @@ require_current_repo() {
     fi
 }
 
-# Select a worktree using fzf
-# Args: $1=repo_path, $2=prompt (optional)
-# Returns: selected worktree path (empty if cancelled or none found)
 select_worktree() {
     local repo="$1"
     local prompt="${2:-Select worktree: }"
@@ -45,8 +40,6 @@ select_worktree() {
     echo "$selected"
 }
 
-# Add worktree for a branch (handles local, remote, or new branch)
-# Args: $1=repo_path, $2=branch_name, $3=worktree_path, $4=create_if_missing (optional, default: true)
 add_worktree_for_branch() {
     local repo="$1"
     local branch="$2"
