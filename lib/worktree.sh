@@ -1,14 +1,9 @@
 #!/usr/bin/env bash
 
 get_current_repo() {
-    local current_dir="$(pwd)"
-    local ghq_root="$HOME/ghq/github.com"
-
-    if [[ "$current_dir" == "$ghq_root"* ]]; then
-        local relative_path="${current_dir#$ghq_root/}"
-        local repo_path=$(echo "$relative_path" | cut -d'/' -f1-2)
-        echo "$ghq_root/$repo_path"
-    fi
+    # Use git rev-parse to get the repository root
+    # This works with any directory structure, not just ghq
+    git rev-parse --show-toplevel 2>/dev/null
 }
 
 require_current_repo() {
