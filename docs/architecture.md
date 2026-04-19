@@ -48,19 +48,28 @@ macOS (FSKit is userspace).
 
 ## Overlay backend
 
-Backend selection is driven by `lib/backend.sh`, which reads `GH_WT_BACKEND`
-(default `auto`) and maps it to one of:
+Backend selection is driven by `lib/backend.sh`. Resolution order is
+`GH_WT_BACKEND` env var, then the XDG config file
+(`${XDG_CONFIG_HOME:-~/.config}/gh-wt/config` — written by
+`gh wt set-backend`), then `auto`. Supported values:
 
 | backend     | OS       | helper binary                 |
 | ----------- | -------- | ----------------------------- |
 | `overlayfs` | Linux    | kernel `mount -t overlay`     |
 | `fskit`     | macOS 26+| `gh-wt-mount-overlay` (XPC → FSKit) |
 | `macfuse`   | macOS    | `gh-wt-mount-overlay-fuse` (libfuse)|
+| `none`      | any      | no overlay — plain `git worktree add` |
 
 `auto` on macOS prefers `fskit` when the helper is present and the host is
 macOS 26+; otherwise it falls back to `macfuse`. Platform differences live
 entirely in `lib/overlay.sh` (backend dispatch) and `lib/env.sh`
 (per-backend preflight); everything above is backend-neutral.
+
+`none` short-circuits the cache/session machinery in `lib/worktree.sh` —
+it skips reference materialisation, upper/workdir allocation, and mount —
+so it works wherever `git` does, at the cost of a full checkout per
+worktree. Use it as the portable fallback or on CI runners where the
+kernel helper is unavailable.
 
 ### Linux — kernel OverlayFS
 

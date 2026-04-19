@@ -49,7 +49,9 @@ the commands to fix it.
 ### Selecting a backend
 
 `gh-wt` auto-detects the best available backend. Override with
-`GH_WT_BACKEND`:
+`GH_WT_BACKEND` (one-shot) or persist the choice with
+`gh wt set-backend <value>`, which writes
+`${XDG_CONFIG_HOME:-~/.config}/gh-wt/config`:
 
 | value       | platform | backend                       |
 | ----------- | -------- | ----------------------------- |
@@ -57,6 +59,11 @@ the commands to fix it.
 | `overlayfs` | Linux    | kernel OverlayFS              |
 | `fskit`     | macOS 26+| FSKit System Extension        |
 | `macfuse`   | macOS    | macFUSE (libfuse, userspace)  |
+| `none`      | any      | plain `git worktree add` (no overlay, no shared cache) |
+
+Precedence: `GH_WT_BACKEND` env var > XDG config > `auto`. The `none`
+backend is the portable fallback — use it when you don't need the shared
+reference layer or can't install a kernel helper.
 
 Not supported: Windows, kernels without OverlayFS, bare repos, submodule
 repos (deferred to v1).
