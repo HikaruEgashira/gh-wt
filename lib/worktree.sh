@@ -16,6 +16,14 @@ tree_sha_for_branch() {
     git -C "$repo" rev-parse --verify "$branch^{tree}" 2>/dev/null
 }
 
+# Atomic directory rename via rename(2). GNU `mv -T` isn't on macOS BSD mv;
+# Perl's rename() is portable (ships in base macOS and every Linux distro)
+# and uses renameat2/rename(2) underneath — replaces empty target dir,
+# fails with ENOTEMPTY if a concurrent builder beat us to it.
+_atomic_rename_dir() {
+    perl -e 'rename($ARGV[0], $ARGV[1]) or exit 1' "$1" "$2"
+}
+
 build_reference() {
     local repo="$1" tree_sha="$2" ref_path="$3"
     local tmp="${ref_path}.tmp.$$"
@@ -25,7 +33,7 @@ build_reference() {
         rm -rf "$tmp"
         return 1
     fi
-    if ! mv -T "$tmp" "$ref_path" 2>/dev/null; then
+    if ! _atomic_rename_dir "$tmp" "$ref_path" 2>/dev/null; then
         rm -rf "$tmp"
         [[ -d "$ref_path" ]] || return 1
     fi

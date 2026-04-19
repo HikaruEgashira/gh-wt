@@ -4,9 +4,18 @@ cache_root() {
     echo "${GH_WT_CACHE:-$HOME/.cache/gh-wt}"
 }
 
+# Portable sha1 hasher: Linux ships `sha1sum`, macOS ships `shasum`.
+_sha1() {
+    if command -v sha1sum >/dev/null 2>&1; then
+        sha1sum
+    else
+        shasum -a 1
+    fi
+}
+
 repo_id() {
     local repo="$1"
-    printf '%s' "$repo" | sha1sum | cut -d' ' -f1
+    printf '%s' "$repo" | _sha1 | cut -d' ' -f1
 }
 
 repo_cache_dir() {
