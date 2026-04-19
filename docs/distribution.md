@@ -8,6 +8,7 @@ stack. Releases split across two channels with independent cadences:
 | ------------------------------------- | ------------------------------------------- | ------------------------------------------------ |
 | `gh-wt` + `gh-wt-mount-overlay`       | `gh extension install HikaruEgashira/gh-wt` | Shell script + signed universal CLI binary.      |
 | `GhWtOverlay.app` (+ `.fskitmodule`)  | `brew install --cask gh-wt-overlay`         | Signed, notarised app bundle with the extension. |
+| `gh-wt-mount-overlay-fuse`            | `brew install gh-wt-mount-overlay-fuse`     | libfuse-linked CLI for the macFUSE backend.      |
 
 ## End-user flow
 
@@ -124,6 +125,36 @@ brew install --cask gh-wt-overlay
 
 Apple Developer Program membership (for Developer ID signing) is a
 prerequisite — `homebrew-cask` rejects unsigned/unnotarised apps.
+
+## Channel 3 — macFUSE helper (optional backend)
+
+Users who can't or won't run the FSKit extension (pre-macOS 26, policy
+restrictions, …) can opt into the macFUSE backend:
+
+```bash
+brew install --cask macfuse                 # kext + /Library/Filesystems/macfuse.fs
+brew install gh-wt-mount-overlay-fuse       # our libfuse CLI
+GH_WT_BACKEND=macfuse gh wt doctor
+```
+
+`gh-wt-mount-overlay-fuse` is a separate Homebrew formula (bottle, not
+cask) because it's a plain CLI binary linked against `/usr/local/lib/
+libfuse.dylib`. Build flow:
+
+```bash
+cd macos
+swift build -c release --product gh-wt-mount-overlay-fuse \
+    -Xlinker -L/usr/local/lib -Xlinker -lfuse
+codesign --sign "$DEVELOPER_ID" --options runtime --timestamp \
+    .build/release/gh-wt-mount-overlay-fuse
+```
+
+The `gh-wt-mount-overlay-fuse` target links `OverlayCore` against a
+libfuse C shim (`Sources/GhWtMountOverlayFuse/`). Same semantics as the
+FSKit adapter — only the kernel surface differs.
+
+Users pick exactly one backend via `GH_WT_BACKEND` or let `auto` choose;
+having both helpers installed is fine.
 
 ## Enterprise (MDM)
 
