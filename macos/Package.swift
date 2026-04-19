@@ -1,4 +1,4 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.2
 //
 // gh-wt-overlay — Swift Package for the macOS overlay implementation.
 //
@@ -16,7 +16,7 @@ import PackageDescription
 
 let package = Package(
     name: "gh-wt-overlay",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v26)],
     products: [
         .library(name: "OverlayCore", targets: ["OverlayCore"]),
         .executable(name: "gh-wt-mount-overlay", targets: ["GhWtMountOverlay"]),
@@ -36,5 +36,6 @@ let package = Package(
             dependencies: ["OverlayCore"],
             path: "Tests/OverlayCoreTests"
         ),
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )
