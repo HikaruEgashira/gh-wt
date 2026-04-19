@@ -374,7 +374,7 @@ public final class Overlay {
         guard let dir = opendir(path) else { return [] }
         defer { closedir(dir) }
         var out: [String] = []
-        while let entry = readdir(dir) {
+        while let entry = Darwin.readdir(dir) {
             let name = withUnsafePointer(to: entry.pointee.d_name) { ptr -> String in
                 ptr.withMemoryRebound(to: CChar.self, capacity: Int(NAME_MAX) + 1) {
                     String(cString: $0)
