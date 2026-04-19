@@ -11,20 +11,22 @@ source "$SCRIPT_DIR/lib/worktree.sh"
 usage() {
     cat <<'EOF'
 Usage:
-  gh wt add <branch> [path]  Create an overlay-backed worktree session
+  gh wt add <branch> [path]  Create a worktree session (overlay or plain)
   gh wt list                 List worktrees (wraps git worktree list)
   gh wt remove               Select a session via fzf and remove it
   gh wt gc                   Delete unreferenced cache entries
-  gh wt doctor               Verify the platform overlay backend is healthy
+  gh wt doctor               Verify the selected backend is healthy
+  gh wt set-backend <value>  Persist the backend choice to XDG config
   gh wt -- <command>         Run <command> inside the selected session dir
   gh wt <command>            Run <command> with selected session path as arg
 
-Requires: Linux 5.11+ with OverlayFS (root or passwordless sudo), OR
-          macOS 26+ with the gh-wt-overlay FSKit System Extension, OR
-          macOS with macFUSE + gh-wt-mount-overlay-fuse helper.
+Overlay backends require: Linux 5.11+ with OverlayFS (root/passwordless sudo),
+  macOS 26+ with the gh-wt-overlay FSKit extension, or macOS + macFUSE.
+The `none` backend is portable and uses plain `git worktree add`.
 
-Backend selection:
-  GH_WT_BACKEND=auto|overlayfs|fskit|macfuse (default: auto)
+Backend selection (precedence: env > config > auto):
+  GH_WT_BACKEND=auto|overlayfs|fskit|macfuse|none
+  config file: ${XDG_CONFIG_HOME:-~/.config}/gh-wt/config
 EOF
 }
 
@@ -52,6 +54,10 @@ case "$cmd" in
         ;;
     doctor)
         cmd_doctor
+        ;;
+    set-backend)
+        shift
+        cmd_set_backend "$@"
         ;;
     --)
         shift

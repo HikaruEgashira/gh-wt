@@ -15,7 +15,7 @@ Overlay-backed git worktree sessions for GitHub CLI.
 gh extension install HikaruEgashira/gh-wt
 ```
 
-macOS はオーバーレイバックエンドが必要です。詳細は `gh wt doctor` を参照してください。
+macOS requires an overlay backend. Run `gh wt doctor` for details.
 
 ## Usage
 
@@ -27,6 +27,7 @@ Usage:
   gh wt remove              ... Remove a worktree (interactive)
   gh wt gc                  ... Delete unreferenced cache entries
   gh wt doctor              ... Check backend setup
+  gh wt set-backend <value> ... Persist backend choice (auto, overlayfs, fskit, macfuse, none)
   gh wt *your_command*      ... Search via fzf and run the command in the selected worktree
 ```
 
@@ -50,7 +51,7 @@ gh wt -- claude
 
 - [GitHub CLI](https://cli.github.com/)
 - [fzf](https://github.com/junegunn/fzf)
-- Linux (kernel 5.11+) または macOS
+- Linux (kernel 5.11+) or macOS
 
 ## Related
 
