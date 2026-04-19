@@ -8,10 +8,14 @@
 🔹<a  href="https://github.com/HikaruEgashira/gh-wt/issues">Request Feature</a>
 </h3>
 
-`gh wt` creates a `git worktree` whose working tree is an OverlayFS mount: a
+`gh wt` creates a `git worktree` whose working tree is an overlay mount: a
 shared, immutable *reference* (read-only lower) plus a per-session *upper*
 where writes go. A session starts in tens of milliseconds, and N sessions cost
 `1 × repo_size + Σ per-session diffs` on disk.
+
+The overlay backend is platform-specific: **OverlayFS** on Linux and a
+**FSKit System Extension** on macOS. Both expose identical semantics; see
+`tests/parity/` for the cross-checks.
 
 ## Install
 
@@ -45,18 +49,23 @@ gh wt code
 
 ## Requirements (v0)
 
-v0 has **one** implementation path — no fallbacks. Hosts that don't meet these
-requirements cannot run `gh wt`:
+v0 has **one** implementation path per platform — no fallbacks. Pick the
+matching column for your host:
 
-1. Linux kernel **5.11** or newer
-2. `overlay` listed in `/proc/filesystems`
-3. A non-bare git repository (the current directory, or a linked worktree of it)
-4. Ability to call `mount(2)` — either running as root, or passwordless `sudo`
-5. No submodules (a `.gitmodules` file triggers an explicit error)
+| Requirement                      | Linux                              | macOS                                                   |
+| -------------------------------- | ---------------------------------- | ------------------------------------------------------- |
+| OS version                       | Kernel 5.11+                       | macOS 26 (Tahoe) or newer                               |
+| Overlay primitive                | `overlay` in `/proc/filesystems`   | `gh-wt-overlay` FSKit System Extension activated        |
+| Mount privilege                  | root or passwordless `sudo`        | n/a (FSKit runs in the user session)                    |
+| Repo                             | non-bare git repo                  | non-bare git repo                                       |
+| Submodules                       | rejected (deferred to v1)          | rejected (deferred to v1)                               |
 
-macOS, Windows, older Linux, and container environments without OverlayFS are
-**not supported** in v0. Submodule and non-privileged-mount support is deferred
-to v1.
+macOS users must install and activate the host app once — see
+[`macos/README.md`](macos/README.md). After that, `gh wt doctor` should
+report all green.
+
+Windows, older Linux without OverlayFS, older macOS, and container
+environments without overlay primitives are **not supported** in v0.
 
 ## Architecture
 
@@ -65,7 +74,7 @@ to v1.
 ├── ref/<tree-sha>/       # raw working tree at a commit tree SHA (immutable)
 └── sessions/<sid>/
     ├── upper/            # per-session CoW layer (holds .git, user writes)
-    └── workdir/          # overlayfs scratch
+    └── workdir/          # overlayfs scratch (Linux only)
 
 <mountpoint>/             # overlay of lower=ref/<tree-sha>, upper=session upper
 ```
@@ -76,6 +85,14 @@ once via `git archive | tar` if missing, registers a linked worktree with
 session upper, and mounts the overlay at the mountpoint. `core.checkStat=minimal`
 and `core.trustctime=false` are set on the linked worktree to survive overlay
 copy-up inode changes.
+
+The overlay primitive is selected by `lib/overlay.sh`:
+
+- **Linux**: `mount -t overlay overlay -o lowerdir=…,upperdir=…,workdir=…`
+- **macOS**: `gh-wt-mount-overlay mount --lower … --upper … --mountpoint …`,
+  which forwards to the `gh-wt-overlay` FSKit System Extension. Whiteouts
+  and opaque directories are encoded as xattrs on the upper layer; see
+  [`macos/README.md`](macos/README.md) for the full semantics.
 
 ## Notes
 

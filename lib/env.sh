@@ -22,6 +22,20 @@ check_overlay_fs() {
         || die "OverlayFS not available (no 'overlay' in /proc/filesystems)"
 }
 
+check_macos_version() {
+    local product major
+    product=$(sw_vers -productVersion 2>/dev/null) \
+        || die "cannot determine macOS version"
+    major="${product%%.*}"
+    [[ "$major" =~ ^[0-9]+$ ]] || die "cannot parse macOS version: $product"
+    (( major >= 26 )) || die "macOS 26+ required for FSKit overlay (found $product)"
+}
+
+check_fskit_helper() {
+    command -v gh-wt-mount-overlay >/dev/null 2>&1 \
+        || die "gh-wt-mount-overlay helper not in PATH (install gh-wt-overlay.app, see macos/README.md)"
+}
+
 check_repo_sanity() {
     local repo="$1"
     local is_bare
@@ -44,10 +58,20 @@ have_mount_cap() {
 }
 
 require_env() {
-    [[ "$(uname -s)" == "Linux" ]] || die "Linux only (this is v0)"
-    check_kernel
-    check_overlay_fs
-    have_mount_cap || die "mount requires root or passwordless sudo"
+    case "$(uname -s)" in
+        Linux)
+            check_kernel
+            check_overlay_fs
+            have_mount_cap || die "mount requires root or passwordless sudo"
+            ;;
+        Darwin)
+            check_macos_version
+            check_fskit_helper
+            ;;
+        *)
+            die "unsupported platform: $(uname -s)"
+            ;;
+    esac
 }
 
 run_as_root() {
@@ -56,4 +80,26 @@ run_as_root() {
     else
         sudo "$@"
     fi
+}
+
+# Remove a session dir. On Linux, OverlayFS upper is owned by root because
+# mount runs as root; on Darwin, FSKit runs in the user's session and the
+# upper is user-owned, so plain rm is correct.
+remove_session_dir() {
+    local sdir="$1"
+    case "$(uname -s)" in
+        Linux)  run_as_root rm -rf "$sdir" ;;
+        *)      rm -rf "$sdir" ;;
+    esac
+}
+
+# Same rationale for cache references (built by `git archive | tar` as the
+# user on both platforms, so root is only needed if Linux later wrote into
+# the ref via overlay copy-up — which it shouldn't, but be defensive).
+remove_cache_path() {
+    local path="$1"
+    case "$(uname -s)" in
+        Linux)  run_as_root rm -rf "$path" ;;
+        *)      rm -rf "$path" ;;
+    esac
 }
