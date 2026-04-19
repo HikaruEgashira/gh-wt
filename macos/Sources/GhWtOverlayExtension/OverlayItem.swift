@@ -23,8 +23,20 @@ final class OverlayItem: FSItem {
     /// at their FSItemAttributes defaults so FSKit knows we didn't fill them.
     static func attributes(from s: Darwin.stat, requested: FSItem.GetAttributesRequest) -> FSItem.Attributes {
         let attrs = FSItem.Attributes()
+        populate(attrs, from: s, wanted: requested.wantedAttributes)
+        return attrs
+    }
 
-        if requested.contains(.type) {
+    /// Populate every attribute available from `stat`, regardless of caller
+    /// request. Useful when handing back the full snapshot after a setattr.
+    static func attributes(from s: Darwin.stat) -> FSItem.Attributes {
+        let attrs = FSItem.Attributes()
+        populate(attrs, from: s, wanted: .all)
+        return attrs
+    }
+
+    private static func populate(_ attrs: FSItem.Attributes, from s: Darwin.stat, wanted: FSItem.Attribute) {
+        if wanted.contains(.type) {
             switch s.st_mode & S_IFMT {
             case S_IFREG: attrs.type = .file
             case S_IFDIR: attrs.type = .directory
@@ -32,24 +44,20 @@ final class OverlayItem: FSItem {
             default:      attrs.type = .file
             }
         }
-        if requested.contains(.mode)   { attrs.mode  = UInt32(s.st_mode & 0o7777) }
-        if requested.contains(.uid)    { attrs.uid   = s.st_uid }
-        if requested.contains(.gid)    { attrs.gid   = s.st_gid }
-        if requested.contains(.size)   { attrs.size  = UInt64(max(0, s.st_size)) }
-        if requested.contains(.linkCount) { attrs.linkCount = UInt32(s.st_nlink) }
-        if requested.contains(.modifyTime) {
-            attrs.modifyTime = timespecToTimestamp(s.st_mtimespec)
-        }
-        if requested.contains(.changeTime) {
-            attrs.changeTime = timespecToTimestamp(s.st_ctimespec)
-        }
-        if requested.contains(.accessTime) {
-            attrs.accessTime = timespecToTimestamp(s.st_atimespec)
-        }
-        return attrs
+        if wanted.contains(.mode)      { attrs.mode  = UInt32(s.st_mode & 0o7777) }
+        if wanted.contains(.uid)       { attrs.uid   = s.st_uid }
+        if wanted.contains(.gid)       { attrs.gid   = s.st_gid }
+        if wanted.contains(.size)      { attrs.size  = UInt64(max(0, s.st_size)) }
+        if wanted.contains(.linkCount) { attrs.linkCount = UInt32(s.st_nlink) }
+        if wanted.contains(.modifyTime) { attrs.modifyTime = s.st_mtimespec }
+        if wanted.contains(.changeTime) { attrs.changeTime = s.st_ctimespec }
+        if wanted.contains(.accessTime) { attrs.accessTime = s.st_atimespec }
     }
+}
 
-    private static func timespecToTimestamp(_ ts: timespec) -> FSItem.Timestamp {
-        return FSItem.Timestamp(seconds: Int64(ts.tv_sec), nanoseconds: UInt32(ts.tv_nsec))
-    }
+extension FSItem.Attribute {
+    static let all: FSItem.Attribute = [
+        .type, .mode, .uid, .gid, .size, .linkCount,
+        .modifyTime, .changeTime, .accessTime,
+    ]
 }

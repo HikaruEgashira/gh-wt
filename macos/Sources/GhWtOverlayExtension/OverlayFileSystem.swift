@@ -16,7 +16,14 @@ import OverlayCore
 
 private let log = Logger(subsystem: "com.github.gh-wt", category: "fs")
 
+// FSKit on macOS 26 expects the extension entry point to conform to
+// `UnaryFileSystemExtension` (an `ExtensionFoundation.AppExtension`) and
+// vend the FSUnaryFileSystem subclass. `@main` lives on the wrapper.
 @main
+struct GhWtOverlayUnaryExtension: UnaryFileSystemExtension {
+    let fileSystem = OverlayFileSystem()
+}
+
 final class OverlayFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
 
     // FSKit asks us to "probe" a resource (typically a block device) before
@@ -28,7 +35,8 @@ final class OverlayFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         replyHandler reply: @escaping (FSProbeResult?, Error?) -> Void
     ) {
         log.info("probeResource: \(String(describing: resource))")
-        let result = FSProbeResult.usable(name: "gh-wt-overlay", containerID: nil)
+        let containerID = FSContainerIdentifier(uuid: UUID())
+        let result = FSProbeResult.usable(name: "gh-wt-overlay", containerID: containerID)
         reply(result, nil)
     }
 

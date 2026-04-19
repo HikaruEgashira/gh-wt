@@ -6,7 +6,7 @@ enum Doctor {
     static func run() {
         var ok = true
         ok = check("macOS 26+", { macOSMajor() >= 26 }) && ok
-        ok = check("fskit_load CLI present", { FileManager.default.isExecutableFile(atPath: "/usr/sbin/fskit_load") }) && ok
+        ok = check("fskitd daemon present", { FileManager.default.isExecutableFile(atPath: "/usr/libexec/fskitd") }) && ok
         ok = check("FSKit framework present", { FileManager.default.fileExists(atPath: "/System/Library/Frameworks/FSKit.framework") }) && ok
         ok = check("gh-wt-overlay extension activated", isExtensionActivated) && ok
 
