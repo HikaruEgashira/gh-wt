@@ -81,7 +81,7 @@ $(EXT_BUNDLE): $(EXT_SOURCES) $(CORE_LIB) $(CORE_SWIFTMODULE) App/Extension-Info
 	    -o "$(EXT_BUNDLE)/Contents/MacOS/$(EXT_NAME)" \
 	    $(EXT_SOURCES)
 	cp App/Extension-Info.plist "$(EXT_BUNDLE)/Contents/Info.plist"
-	$(PLBUDDY) -c "Set :NSExtension:NSExtensionPrincipalClass $(EXT_NAME).OverlayFileSystem" \
+	$(PLBUDDY) -c "Set :NSExtension:NSExtensionPrincipalClass $(EXT_NAME).GhWtOverlayUnaryExtension" \
 	    "$(EXT_BUNDLE)/Contents/Info.plist"
 
 app: $(APP_BUNDLE) extension

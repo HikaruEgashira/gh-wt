@@ -36,7 +36,7 @@ final class OverlayVolume: FSVolume,
 
     // MARK: - FSVolume.PathConfOperations
 
-    var maximumLinkCount: Int { Int(Int32.max) }
+    var maximumLinkCount: Int { 1 }
     var maximumNameLength: Int { Int(NAME_MAX) }
     var restrictsOwnershipChanges: Bool { false }
     var truncatesLongNames: Bool { false }
@@ -315,9 +315,10 @@ final class OverlayVolume: FSVolume,
                 }
                 index += 1
                 if index > cookie.rawValue {
+                    let parentID = parentIdentifier(of: dir)
                     if !packer.packEntry(name: FSFileName(string: ".."),
                                          itemType: .directory,
-                                         itemID: dir.identifier,
+                                         itemID: parentID,
                                          nextCookie: FSDirectoryCookie(rawValue: index),
                                          attributes: nil) {
                         reply(verifier, nil); return
@@ -445,6 +446,16 @@ final class OverlayVolume: FSVolume,
     private func join(_ parent: String, _ name: String) -> String {
         if parent.isEmpty { return name }
         return "\(parent)/\(name)"
+    }
+
+    private func parentIdentifier(of dir: OverlayItem) -> FSItem.Identifier {
+        let path = dir.logicalPath
+        if path.isEmpty { return dir.identifier }
+        guard let slash = path.lastIndex(of: "/") else {
+            return rootItem.identifier
+        }
+        let parentPath = String(path[..<slash])
+        return ensureItem(forLogical: parentPath).identifier
     }
 
     private func posix(_ e: Int32) -> Error {
