@@ -137,9 +137,12 @@ jobs:
           sudo cp -R .build/GhWtOverlay.app /Applications/
 
       - name: activate FSKit extension
+        timeout-minutes: 3
         run: |
-          set -euo pipefail
-          sudo systemextensionsctl developer on || true
+          set -uo pipefail
+          # `-n` forces sudo to fail fast instead of blocking on an
+          # interactive password prompt that the runner can't satisfy.
+          sudo -n systemextensionsctl developer on || true
           # Launching the host app submits the OSSystemExtensionRequest.
           open -g /Applications/GhWtOverlay.app || true
           for _ in $(seq 1 30); do
@@ -151,7 +154,9 @@ jobs:
           systemextensionsctl list || true
 
       - name: gh-wt-mount-overlay doctor
+        timeout-minutes: 2
         run: gh-wt-mount-overlay doctor || true
 
       - name: parity suite (backend=darwin)
+        timeout-minutes: 10
         run: sudo env "PATH=/usr/local/bin:$PATH" ./tests/parity/run.sh --backend darwin
