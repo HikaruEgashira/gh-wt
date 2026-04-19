@@ -71,8 +71,35 @@ cmd_add() {
     [[ ! -e "$mountpoint" ]] || die "mountpoint already exists: $mountpoint"
 
     if [[ "$(resolve_backend)" == "none" ]]; then
-        git -C "$repo" worktree add "$mountpoint" "$branch" \
-            || die "git worktree add failed"
+        local mode="${GH_WT_CHECKOUT:-sync}"
+        case "$mode" in
+            sync)
+                git -C "$repo" worktree add "$mountpoint" "$branch" \
+                    || die "git worktree add failed"
+                link_parent_deps "$repo" "$mountpoint"
+                ;;
+            async)
+                # --no-checkout returns as soon as the .git pointer is written.
+                # Files stream in via a detached `git reset --hard` that
+                # survives the parent shell (`nohup` + `&`). Dep symlinks are
+                # made up front because they're gitignored and won't race the
+                # checkout. `reset --hard HEAD` is used instead of `checkout`
+                # because --no-checkout leaves the index empty, so checkout-by-
+                # pathspec finds nothing to materialise.
+                git -C "$repo" worktree add --no-checkout "$mountpoint" "$branch" \
+                    || die "git worktree add failed"
+                link_parent_deps "$repo" "$mountpoint"
+                local log="$mountpoint/.gh-wt-checkout.log"
+                nohup git -C "$mountpoint" reset --hard HEAD \
+                    </dev/null >"$log" 2>&1 &
+                local pid=$!
+                disown "$pid" 2>/dev/null || true
+                echo "  checkout: async (pid=$pid, log=$log)"
+                ;;
+            *)
+                die "unknown GH_WT_CHECKOUT: $mode (expected sync|async)"
+                ;;
+        esac
         echo "worktree ready: $mountpoint"
         echo "  branch:    $branch"
         echo "  backend:   none (plain git worktree)"
@@ -194,7 +221,7 @@ cmd_doctor() {
 
     case "$backend" in
         none)
-            echo "  plain git worktree mode (no overlay, no shared cache)"
+            echo "  plain git worktree mode (no overlay, deps symlinked from parent)"
             return 0
             ;;
         overlayfs)
