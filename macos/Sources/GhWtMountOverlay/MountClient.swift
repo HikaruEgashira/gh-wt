@@ -1,26 +1,31 @@
-// MountClient.swift — converts mount/unmount intent into FSKit-driven
-// system calls.
+// MountClient.swift — drive FSKit mount/unmount via the public
+// `mount(8)` / `umount(8)` entry points.
 //
-// The flow on macOS 26 is:
+// macOS 26 FSKit exposes no programmatic client-side mount API in the
+// public SDK (`FSClient` only enumerates modules). The supported flow is:
 //
-//   1. Helper resolves lower/upper/mountpoint to absolute paths.
-//   2. Helper hands fskitd the bundle ID of our extension plus a
-//      configuration dictionary (lower / upper / volume name).
-//   3. fskitd loads the extension if needed and asks it to load the
-//      "resource"; the extension returns an FSVolume.
-//   4. fskitd performs the actual mount(2) at the requested path.
+//   1. Extension declares `FSSupportedSchemes = ["gh-wt-overlay"]` in its
+//      Info.plist, so FSKit accepts URLs of that scheme as
+//      `FSGenericURLResource`.
+//   2. Helper builds a `gh-wt-overlay://` URL carrying lower/upper/name
+//      (see `OverlayMountURL` in OverlayCore).
+//   3. Helper shells out to `mount -t gh-wt-overlay <url> <mountpoint>`.
+//      `mount(8)` is FSKit-aware on macOS 26; it proxies through fskitd
+//      without requiring root when the extension is user-approved
+//      (see FSResource.h: the `mount(8)` tool uses a proxy "which prevents
+//      leaking privileged resource access").
 //
-// We talk to fskitd via the `fskit_load(8)` / `fskit_unmount(8)` family
-// of helpers (shipped with macOS 26). If those are unavailable we fall
-// back to `mount(8) -t gh-wt-overlay`, which fskitd registers as a
-// filesystem type when the extension is enabled in System Settings.
+// No dependence on `/usr/sbin/fskit_load` (Apple-private, moved between
+// macOS 26.x releases) and no parallel mount-option encoding.
+//
+// Unmount is the same as any other volume: `umount(8)`.
 
 import Foundation
 import OverlayCore
 
 enum MountClient {
     static let bundleID = "com.github.gh-wt.overlay"
-    static let fsType   = "gh-wt-overlay"
+    static let fsType = OverlayMountURL.scheme // "gh-wt-overlay"
 
     static func mount(lower: String, upper: String, mountpoint: String) throws {
         let absLower = absolute(lower)
@@ -31,19 +36,13 @@ enum MountClient {
         try ensureDirectory(absUpper, label: "upper")
         try ensureDirectory(absMount, label: "mountpoint")
 
-        // Pack lower/upper/volumeName into a JSON config that fskit_load
-        // forwards to the extension as taskInfoDictionary keys.
-        let config: [String: String] = [
-            OverlayMountConfigKeys.lower: absLower,
-            OverlayMountConfigKeys.upper: absUpper,
-            OverlayMountConfigKeys.volumeName: defaultVolumeName(for: absMount),
-        ]
-        let json = try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
+        let url = OverlayMountURL.build(.init(
+            lower: absLower,
+            upper: absUpper,
+            volumeName: defaultVolumeName(for: absMount)
+        ))
 
-        try Subprocess.run(
-            "/usr/sbin/fskit_load",
-            ["--bundle-id", bundleID, "--mountpoint", absMount, "--config-json", String(data: json, encoding: .utf8)!]
-        )
+        try Subprocess.run("/sbin/mount", ["-t", fsType, url.absoluteString, absMount])
 
         try MountRegistry.shared.record(
             mountpoint: absMount,
@@ -73,13 +72,4 @@ enum MountClient {
         let base = (mountpoint as NSString).lastPathComponent
         return base.isEmpty ? "gh-wt-overlay" : base
     }
-}
-
-/// Keys must match those in GhWtOverlayExtension/MountConfig.swift. They're
-/// duplicated here (rather than imported) because the extension target is
-/// not part of the SPM build, so the helper CLI can't depend on it.
-enum OverlayMountConfigKeys {
-    static let lower      = "gh-wt.lower"
-    static let upper      = "gh-wt.upper"
-    static let volumeName = "gh-wt.volumeName"
 }

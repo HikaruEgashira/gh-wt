@@ -39,5 +39,9 @@
             <string>ghwt</string>
         </dict>
     </dict>
+    <key>FSSupportedSchemes</key>
+    <array>
+        <string>gh-wt-overlay</string>
+    </array>
 </dict>
 </plist>

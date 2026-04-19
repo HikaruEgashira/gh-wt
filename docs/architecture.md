@@ -89,9 +89,10 @@ natively.
 gh wt add <branch>
    └── overlay_mount lower upper work mountpoint        (lib/overlay.sh)
          └── gh-wt-mount-overlay mount …                (Swift CLI)
-               └── /usr/sbin/fskit_load --bundle-id …   (macOS 26)
-                     └── fskitd loads OverlayFileSystem (FSKit extn)
-                           └── extn calls Overlay(lower:upper:)
+               └── /sbin/mount -t gh-wt-overlay URL mnt (FSKit-aware)
+                     └── fskitd resolves via FSSupportedSchemes
+                           └── extn decodes FSGenericURLResource.url
+                                 └── extn calls Overlay(lower:upper:)
 ```
 
 Implementation lives under `macos/` as a Swift Package:

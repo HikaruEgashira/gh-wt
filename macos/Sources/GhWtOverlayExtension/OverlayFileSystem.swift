@@ -61,7 +61,7 @@ final class OverlayFileSystem: FSUnaryFileSystem, FSUnaryFileSystemOperations {
         replyHandler reply: @escaping (FSVolume?, Error?) -> Void
     ) {
         do {
-            let cfg = try OverlayMountConfig.decode(from: resource, options: options)
+            let cfg = try OverlayMountConfigDecoder.decode(from: resource)
             log.info("loadResource: lower=\(cfg.lower) upper=\(cfg.upper)")
             let core = try Overlay(lower: cfg.lower, upper: cfg.upper)
             let volume = OverlayVolume(core: core, name: cfg.volumeName)
