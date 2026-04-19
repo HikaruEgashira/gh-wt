@@ -5,6 +5,36 @@ die() {
     exit 1
 }
 
+# Portable `readlink -m`: canonicalise a path whether it exists or not.
+# GNU readlink supports -m; BSD (macOS) does not. We resolve the nearest
+# existing ancestor with `cd ... && pwd -P`, then append the remainder.
+canonical_path() {
+    local input="$1"
+    [[ -n "$input" ]] || return 1
+    [[ "$input" == /* ]] || input="$PWD/$input"
+
+    local head="$input" tail=""
+    while [[ ! -d "$head" ]]; do
+        local base
+        base=$(basename "$head")
+        tail="$base${tail:+/$tail}"
+        local parent
+        parent=$(dirname "$head")
+        [[ "$parent" == "$head" ]] && break
+        head="$parent"
+    done
+
+    local resolved_head
+    resolved_head=$(cd "$head" 2>/dev/null && pwd -P) || resolved_head="$head"
+    if [[ -z "$tail" ]]; then
+        echo "$resolved_head"
+    elif [[ "$resolved_head" == "/" ]]; then
+        echo "/$tail"
+    else
+        echo "$resolved_head/$tail"
+    fi
+}
+
 check_kernel() {
     local release major minor
     release=$(uname -r)
@@ -83,6 +113,9 @@ require_env() {
         macfuse)
             check_macfuse_installed
             check_macfuse_helper
+            ;;
+        none)
+            # Plain git worktree; no external dependency to check.
             ;;
         *)
             die "unresolved backend: $backend"

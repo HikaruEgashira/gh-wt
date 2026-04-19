@@ -64,15 +64,24 @@ cmd_add() {
             ;;
     esac
 
-    local tree_sha
-    tree_sha=$(tree_sha_for_branch "$repo" "$branch") \
-        || die "cannot resolve tree for '$branch'"
-
     check_branch_no_submodules "$repo" "$branch"
 
     [[ -n "$mountpoint" ]] || mountpoint=$(default_mountpoint "$repo" "$branch")
-    mountpoint=$(readlink -m "$mountpoint")
+    mountpoint=$(canonical_path "$mountpoint")
     [[ ! -e "$mountpoint" ]] || die "mountpoint already exists: $mountpoint"
+
+    if [[ "$(resolve_backend)" == "none" ]]; then
+        git -C "$repo" worktree add "$mountpoint" "$branch" \
+            || die "git worktree add failed"
+        echo "worktree ready: $mountpoint"
+        echo "  branch:    $branch"
+        echo "  backend:   none (plain git worktree)"
+        return 0
+    fi
+
+    local tree_sha
+    tree_sha=$(tree_sha_for_branch "$repo" "$branch") \
+        || die "cannot resolve tree for '$branch'"
 
     ensure_cache_dirs "$repo"
 
@@ -136,6 +145,12 @@ cmd_remove() {
     [[ -n "$selected" ]] || return 0
     [[ "$selected" != "$repo" ]] || die "refusing to remove main worktree"
 
+    if [[ "$(resolve_backend)" == "none" ]]; then
+        git -C "$repo" worktree remove --force "$selected"
+        echo "removed: $selected"
+        return 0
+    fi
+
     sid=$(session_id_from_gitfile "$selected") \
         || die "not a gh-wt session (no linked gitdir pointer): $selected"
     sdir=$(session_dir "$repo" "$sid")
@@ -175,8 +190,13 @@ cmd_doctor() {
     backend=$(resolve_backend)
     echo "platform: $(uname -s)"
     echo "backend:  $backend${GH_WT_BACKEND:+ (GH_WT_BACKEND=$GH_WT_BACKEND)}"
+    echo "config:   $(config_path)"
 
     case "$backend" in
+        none)
+            echo "  plain git worktree mode (no overlay, no shared cache)"
+            return 0
+            ;;
         overlayfs)
             check_kernel && echo "  kernel >= 5.11: ok"
             check_overlay_fs && echo "  overlayfs available: ok"
@@ -216,7 +236,26 @@ cmd_doctor() {
     esac
 }
 
+cmd_set_backend() {
+    local value="${1:-}"
+    [[ -n "$value" ]] || die "usage: gh wt set-backend <auto|overlayfs|fskit|macfuse|none>"
+    case "$value" in
+        auto|overlayfs|fskit|macfuse|none) ;;
+        *) die "invalid backend: $value (expected auto|overlayfs|fskit|macfuse|none)" ;;
+    esac
+    write_configured_backend "$value"
+    echo "backend=$value written to $(config_path)"
+    if [[ -n "${GH_WT_BACKEND:-}" ]]; then
+        echo "note: GH_WT_BACKEND=$GH_WT_BACKEND is set in the environment and" >&2
+        echo "      overrides the config file — unset it for the new value to apply." >&2
+    fi
+}
+
 cmd_gc() {
+    if [[ "$(resolve_backend)" == "none" ]]; then
+        echo "nothing to gc (backend=none uses no cache)"
+        return 0
+    fi
     local repo
     repo=$(require_main_repo)
     local base
