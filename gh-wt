@@ -5,6 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/env.sh"
 source "$SCRIPT_DIR/lib/backend.sh"
 source "$SCRIPT_DIR/lib/cache.sh"
+source "$SCRIPT_DIR/lib/deps.sh"
 source "$SCRIPT_DIR/lib/overlay.sh"
 source "$SCRIPT_DIR/lib/worktree.sh"
 
@@ -27,6 +28,10 @@ The `none` backend is portable and uses plain `git worktree add`.
 Backend selection (precedence: env > config > auto):
   GH_WT_BACKEND=auto|overlayfs|fskit|macfuse|none
   config file: ${XDG_CONFIG_HOME:-~/.config}/gh-wt/config
+
+backend=none creates worktrees asynchronously: `git worktree add --no-checkout`
+returns immediately, then a detached `git reset --hard HEAD` streams files in
+(see .gh-wt-checkout.log in the worktree for progress/errors).
 EOF
 }
 
