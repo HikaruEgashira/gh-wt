@@ -29,9 +29,9 @@ Backend selection (precedence: env > config > auto):
   GH_WT_BACKEND=auto|overlayfs|fskit|macfuse|none
   config file: ${XDG_CONFIG_HOME:-~/.config}/gh-wt/config
 
-backend=none checkout mode:
-  GH_WT_CHECKOUT=sync (default) | async — async returns immediately and
-  populates the worktree via a detached `git reset --hard` (see .gh-wt-checkout.log).
+backend=none creates worktrees asynchronously: `git worktree add --no-checkout`
+returns immediately, then a detached `git reset --hard HEAD` streams files in
+(see .gh-wt-checkout.log in the worktree for progress/errors).
 EOF
 }
 
