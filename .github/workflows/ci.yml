@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shell-lint:
+    name: shell lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n (syntax)
+        run: |
+          set -euo pipefail
+          bash -n gh-wt
+          for f in lib/*.sh tests/parity/run.sh tests/parity/cases/*.sh; do
+            bash -n "$f"
+          done
+
+      - name: shellcheck
+        run: |
+          set -euo pipefail
+          shellcheck --version
+          shellcheck -x gh-wt lib/*.sh
+          shellcheck -x tests/parity/run.sh tests/parity/cases/*.sh
+
+  parity-linux:
+    name: parity (OverlayFS)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: probe OverlayFS
+        run: |
+          set -euo pipefail
+          grep -qw overlay /proc/filesystems
+          sudo -n true
+
+      - name: run parity suite
+        run: sudo ./tests/parity/run.sh
+
+  macos-swift:
+    name: OverlayCore tests (macOS)
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: macos
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: swift version
+        run: swift --version
+
+      - name: swift build
+        run: swift build
+
+      - name: swift test
+        run: swift test
