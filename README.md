@@ -1,87 +1,121 @@
 <div align="center">
     <h2 align="center">gh-wt</h2>
-    <small align="center">Explenable, worktree management</small>
+    <small align="center">Explainable, overlay-based worktree management</small>
 </div>
 
 <h3 align="center">
-🔹<a  href="https://github.com/HikaruEgashira/gh-wt/issues">Report Bug</a> &nbsp; &nbsp;
-🔹<a  href="https://github.com/HikaruEgashira/gh-wt/issues">Request Feature</a>
+<a href="https://github.com/HikaruEgashira/gh-wt/issues">Report Bug</a> &nbsp;&nbsp;
+<a href="https://github.com/HikaruEgashira/gh-wt/issues">Request Feature</a>
 </h3>
 
-#### Example
+## What
 
-Install `gh extension install HikaruEgashira/gh-wt`
+`gh wt add <branch>` creates a worktree backed by a **copy-on-write overlay**:
+a shared read-only reference (the branch's tree) plus a per-session writable
+upper layer. No physical duplication of the working tree, and N sessions
+consume `1 × repo_size + Σ per-session diff` on disk.
+
+- **Phase 1 (Linux)**: uses the kernel's OverlayFS directly.
+- **Phase 2 (macOS)**: FSKit System Extension with OverlayFS-equivalent
+  semantics (separate distribution).
+
+See [`docs/design-v0.md`](docs/design-v0.md) for the full design rationale.
+
+## Install
 
 ```bash
-# List worktrees in current repository
-gh wt list
+gh extension install HikaruEgashira/gh-wt
+```
 
-# Create a new worktree for feature branch
+## Usage
+
+```bash
+# Create an overlay worktree for a branch
 gh wt add feature-branch
 
-# Remove a worktree (interactive selection)
+# List worktrees in the current repository
+gh wt list
+
+# Remove a worktree (interactive via fzf) and its overlay upper layer
 gh wt remove
 
-# Open a worktree in VS Code (path as argument)
+# Open a worktree in VS Code (passes the path as an argument)
 gh wt code
 
-# Run commands in the selected worktree directory
+# Run a command inside the selected worktree directory
 gh wt -- claude
 gh wt -- git status
-gh wt -- npm test
+
+# Garbage-collect overlay references that no live session uses
+gh wt gc
+
+# Check whether overlay is available in the current environment
+gh wt doctor
 ```
 
-#### Help
+## Commands
+
+| Command | Description |
+|---|---|
+| `gh wt add <branch> [path]` | Create an overlay session |
+| `gh wt list` | Wrapper for `git worktree list` |
+| `gh wt remove` | fzf pick + overlay umount + `git worktree remove` |
+| `gh wt gc` | Remove reference directories not used by any live overlay |
+| `gh wt doctor` | Report overlay / platform readiness |
+| `gh wt -- <cmd>` | fzf pick + run `<cmd>` in the session dir |
+| `gh wt <cmd>` | fzf pick + run `<cmd> <path>` |
+
+## How it is laid out
+
+```
+~/.cache/gh-wt/<repo-id>/
+├── ref/<tree-sha>/       # shared, immutable: one per commit tree
+└── sessions/<sid>/
+    ├── upper/            # per-session writable layer (incl. .git)
+    └── workdir/          # overlay scratch (Linux only)
+```
+
+`<repo-id>` is the SHA-1 of the absolute path of the main repository.
+`<tree-sha>` is `git rev-parse <branch>^{tree}`, so sessions that start from
+the same tree automatically share the same reference. `<sid>` is derived from
+the mountpoint basename.
+
+The main repository is never modified beyond the normal `git worktree add`
+metadata it already writes under `.git/worktrees/<sid>/`.
+
+## Requirements
+
+### Linux
+
+- Kernel with OverlayFS (5.11+ recommended)
+- `CAP_SYS_ADMIN` (root or an equivalent capability) for `mount(2)`
+- `fzf`, `git`
+
+### macOS
+
+Phase 2. Requires the `gh-wt-overlay` FSKit System Extension, which is
+distributed separately (not yet released). macOS 26+ is recommended.
+
+## Dependency caching
+
+There is no separate dependency-caching feature. The overlay's lower layer
+already shares every file in the branch's tree across all sessions. Anything
+you `npm install` / `cargo build` inside a session is written to that
+session's upper layer and stays isolated there. To keep build artefacts out
+of the upper layer, point build tools at a scratch directory, e.g.:
 
 ```bash
-$ gh wt --help
-Usage:
-  gh wt list          ... List git worktrees in current repository
-  gh wt add <branch> [path] ... Add a new worktree in current repository
-  gh wt remove        ... Remove a worktree in current repository
-  gh wt -- <command>  ... Search via fzf and run <command> in the selected worktree
-  gh wt <command>     ... Search via fzf and run <command> with selected worktree as argument
+export CARGO_TARGET_DIR="$HOME/.cache/cargo-target/$USER"
 ```
-
-
-### Feature1: fzf Native Integration
-
-#### Path Argument Mode
-Passes the worktree path as an argument to the command
-```bash
-gh wt code # Opens VS Code with the selected directory
-```
-
-#### Directory Change Mode
-Changes to the worktree directory and executes the command
-```bash
-gh wt -- claude # Run Claude Code in the selected directory
-gh wt --        # Opens a shell in the selected directory
-```
-
-### Feature2: Dependency Caching
-
-When creating a worktree, dependencies are automatically linked to the parent repository
-
-| Source | Shared Directory |
-|--------|-----------------|
-| Node.js | node_modules |
-| Python | .venv |
-| Rust | target |
-| Go | vendor |
-| Ruby | vendor/bundle |
-| Swift | .build |
-| Zig | zig-cache, .zig-cache |
-| Deno | deno_dir |
-| .gitignore | Any directory listed in .gitignore |
 
 ## Acknowledgements
 
-- [`gh-q`](https://github.com/HikaruEgashira/gh-q): Quick repository navigation
+- [`gh-q`](https://github.com/HikaruEgashira/gh-q): Quick repository
+  navigation
 
 ```bash
-gh q                    # Select repository
-gh q --                 # Change directory
-gh wt add feature/new   # Create new worktree
-gh wt -- codex          # Open worktree in Codex
+gh q                    # select repository
+gh q --                 # change directory
+gh wt add feature/new   # create overlay worktree
+gh wt -- codex          # open worktree in Codex
 ```
