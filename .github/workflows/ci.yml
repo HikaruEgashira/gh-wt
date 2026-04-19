@@ -104,8 +104,8 @@ jobs:
           test -f "$app/Contents/Info.plist"
           test -x "$ext/Contents/MacOS/GhWtOverlayExtension"
           test -f "$ext/Contents/Info.plist"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$ext/Contents/Info.plist"
-          /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPrincipalClass" "$ext/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$ext/Contents/Info.plist")" = com.github.gh-wt.overlay
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSExtension:NSExtensionPrincipalClass' "$ext/Contents/Info.plist")" = GhWtOverlayExtension.OverlayFileSystem
           test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundlePackageType' "$ext/Contents/Info.plist")" = FSKT
 
   parity-darwin:
