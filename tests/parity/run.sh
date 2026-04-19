@@ -17,7 +17,6 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
 CASES_DIR="$HERE/cases"
 
 case "$(uname -s)" in
@@ -63,10 +62,11 @@ umount_overlay() {
 }
 
 setup_layers() {
-    LOWER=$(mktemp -d -t ghwt-lower)
-    UPPER=$(mktemp -d -t ghwt-upper)
-    WORK=$(mktemp -d -t ghwt-work)
-    MNT=$(mktemp -d -t ghwt-mnt)
+    local tmp="${TMPDIR:-/tmp}"
+    LOWER=$(mktemp -d "$tmp/ghwt-lower.XXXXXX")
+    UPPER=$(mktemp -d "$tmp/ghwt-upper.XXXXXX")
+    WORK=$(mktemp -d "$tmp/ghwt-work.XXXXXX")
+    MNT=$(mktemp -d "$tmp/ghwt-mnt.XXXXXX")
     export LOWER UPPER WORK MNT
 }
 

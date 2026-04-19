@@ -16,7 +16,7 @@ import PackageDescription
 
 let package = Package(
     name: "gh-wt-overlay",
-    platforms: [.macOS(.v15)],
+    platforms: [.macOS(.v14)],
     products: [
         .library(name: "OverlayCore", targets: ["OverlayCore"]),
         .executable(name: "gh-wt-mount-overlay", targets: ["GhWtMountOverlay"]),
