@@ -36,5 +36,6 @@ let package = Package(
             dependencies: ["OverlayCore"],
             path: "Tests/OverlayCoreTests"
         ),
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )
