@@ -58,9 +58,9 @@ jobs:
         run: sudo ./tests/parity/run.sh
 
   macos-swift:
-    name: OverlayCore tests (macOS)
+    name: OverlayCore tests + unsigned bundle (macOS)
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 25
     defaults:
       run:
         working-directory: macos
@@ -77,3 +77,71 @@ jobs:
 
       - name: swift test
         run: swift test
+
+      # `make all` drives swiftc directly to produce the .fskitmodule and
+      # the .app bundle that SPM cannot emit. We build unsigned on CI to
+      # catch source/layout regressions in the extension and host app
+      # without needing a Developer ID in the secret store.
+      - name: make all (helper + extension + app, unsigned)
+        run: make all
+
+      - name: verify bundle layout
+        run: |
+          set -euo pipefail
+          app=.build/GhWtOverlay.app
+          ext="$app/Contents/Library/SystemExtensions/GhWtOverlayExtension.fskitmodule"
+          test -x "$app/Contents/MacOS/GhWtOverlayApp"
+          test -f "$app/Contents/Info.plist"
+          test -x "$ext/Contents/MacOS/GhWtOverlayExtension"
+          test -f "$ext/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$ext/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPrincipalClass" "$ext/Contents/Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundlePackageType' "$ext/Contents/Info.plist")" = FSKT
+
+  parity-darwin:
+    name: parity (FSKit, unsigned, best-effort)
+    runs-on: macos-26
+    timeout-minutes: 25
+    # Activating an unsigned FSKit System Extension on CI requires both
+    # `systemextensionsctl developer on` and an MDM-style approval the
+    # GitHub runner can't satisfy today. We keep the job wired so the
+    # build+install path stays under test and the full parity flow will
+    # start passing automatically once a signed bundle is available
+    # (see docs/distribution.md).
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: build helper + app bundle
+        working-directory: macos
+        run: make all
+
+      - name: install helper + app bundle
+        working-directory: macos
+        run: |
+          set -euo pipefail
+          sudo install -m 0755 .build/release/gh-wt-mount-overlay /usr/local/bin/gh-wt-mount-overlay
+          sudo rm -rf /Applications/GhWtOverlay.app
+          sudo cp -R .build/GhWtOverlay.app /Applications/
+
+      - name: activate FSKit extension
+        run: |
+          set -euo pipefail
+          sudo systemextensionsctl developer on || true
+          # Launching the host app submits the OSSystemExtensionRequest.
+          open -g /Applications/GhWtOverlay.app || true
+          for _ in $(seq 1 30); do
+            if systemextensionsctl list 2>/dev/null | grep -q com.github.gh-wt.overlay; then
+              break
+            fi
+            sleep 2
+          done
+          systemextensionsctl list || true
+
+      - name: gh-wt-mount-overlay doctor
+        run: gh-wt-mount-overlay doctor || true
+
+      - name: parity suite (backend=darwin)
+        run: sudo env "PATH=/usr/local/bin:$PATH" ./tests/parity/run.sh --backend darwin
