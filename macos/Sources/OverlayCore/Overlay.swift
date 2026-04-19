@@ -208,6 +208,16 @@ public final class Overlay {
         if r.source == .upper {
             if OverlayPaths.isDir(r.stat) {
                 if !readdirRaw(upperPath).isEmpty { throw OverlayError.notEmpty }
+                // readdirRaw filters whiteouts from the logical view, but the
+                // marker files remain on disk and would trip rmdir(ENOTEMPTY).
+                // The whiteout created for `logical` below hides lower, so
+                // dropping these inner markers is safe.
+                for name in Self.scanDirectory(upperPath) {
+                    let child = "\(upperPath)/\(name)"
+                    if Whiteout.isWhiteout(path: child), Darwin.unlink(child) != 0 {
+                        throw OverlayError(errno, "whiteout unlink")
+                    }
+                }
                 if Darwin.rmdir(upperPath) != 0 { throw OverlayError(errno, "rmdir upper") }
             } else {
                 if Darwin.unlink(upperPath) != 0 { throw OverlayError(errno, "unlink upper") }
