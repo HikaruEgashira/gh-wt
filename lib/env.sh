@@ -28,8 +28,13 @@ check_repo_sanity() {
     is_bare=$(git -C "$repo" rev-parse --is-bare-repository 2>/dev/null) \
         || die "not inside a git repository"
     [[ "$is_bare" == "false" ]] || die "bare repositories are not supported"
-    [[ ! -f "$repo/.gitmodules" ]] \
-        || die "repositories with submodules are not supported in v0"
+}
+
+check_branch_no_submodules() {
+    local repo="$1" rev="$2"
+    if git -C "$repo" cat-file -e "$rev:.gitmodules" 2>/dev/null; then
+        die "repositories with submodules are not supported in v0"
+    fi
 }
 
 have_mount_cap() {

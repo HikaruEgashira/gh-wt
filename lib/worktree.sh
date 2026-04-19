@@ -17,9 +17,18 @@ tree_sha_for_branch() {
 }
 
 build_reference() {
-    local repo="$1" branch="$2" ref_path="$3"
-    mkdir -p "$ref_path"
-    git -C "$repo" archive "$branch" | tar -x -C "$ref_path"
+    local repo="$1" tree_sha="$2" ref_path="$3"
+    local tmp="${ref_path}.tmp.$$"
+    rm -rf "$tmp"
+    mkdir -p "$tmp"
+    if ! git -C "$repo" archive "$tree_sha" | tar -x -C "$tmp"; then
+        rm -rf "$tmp"
+        return 1
+    fi
+    if ! mv -T "$tmp" "$ref_path" 2>/dev/null; then
+        rm -rf "$tmp"
+        [[ -d "$ref_path" ]] || return 1
+    fi
 }
 
 default_mountpoint() {
@@ -59,6 +68,8 @@ cmd_add() {
     tree_sha=$(tree_sha_for_branch "$repo" "$branch") \
         || die "cannot resolve tree for '$branch'"
 
+    check_branch_no_submodules "$repo" "$branch"
+
     [[ -n "$mountpoint" ]] || mountpoint=$(default_mountpoint "$repo" "$branch")
     mountpoint=$(readlink -m "$mountpoint")
     [[ ! -e "$mountpoint" ]] || die "mountpoint already exists: $mountpoint"
@@ -69,7 +80,8 @@ cmd_add() {
     ref_path=$(ref_dir "$repo" "$tree_sha")
     if [[ ! -d "$ref_path" ]]; then
         echo "preparing reference $tree_sha..."
-        build_reference "$repo" "$branch" "$ref_path"
+        build_reference "$repo" "$tree_sha" "$ref_path" \
+            || die "failed to build reference $tree_sha"
     fi
 
     mkdir -p "$mountpoint"
@@ -85,8 +97,13 @@ cmd_add() {
 
     mv "$mountpoint/.git" "$sdir/upper/.git"
 
-    overlay_mount "$ref_path" "$sdir/upper" "$sdir/workdir" "$mountpoint" \
-        || die "overlay mount failed"
+    if ! overlay_mount "$ref_path" "$sdir/upper" "$sdir/workdir" "$mountpoint"; then
+        mv "$sdir/upper/.git" "$mountpoint/.git" 2>/dev/null || true
+        git -C "$repo" worktree remove --force "$mountpoint" >/dev/null 2>&1 || true
+        run_as_root rm -rf "$sdir"
+        rmdir "$mountpoint" 2>/dev/null || true
+        die "overlay mount failed"
+    fi
 
     configure_worktree_stat "$repo" "$mountpoint"
     git -C "$mountpoint" update-index --refresh >/dev/null 2>&1 || true
@@ -119,20 +136,19 @@ cmd_remove() {
     [[ -n "$selected" ]] || return 0
     [[ "$selected" != "$repo" ]] || die "refusing to remove main worktree"
 
-    check_mountpoint_free "$selected"
-
-    sid=$(session_id_from_gitfile "$selected" || true)
+    sid=$(session_id_from_gitfile "$selected") \
+        || die "not a gh-wt session (no linked gitdir pointer): $selected"
+    sdir=$(session_dir "$repo" "$sid")
+    [[ -d "$sdir/upper" && -d "$sdir/workdir" ]] \
+        || die "refusing to remove non-gh-wt worktree: $selected"
 
     if is_mounted "$selected"; then
+        check_mountpoint_free "$selected"
         overlay_umount "$selected" || die "umount failed: $selected"
     fi
 
     git -C "$repo" worktree remove --force "$selected"
-
-    if [[ -n "$sid" ]]; then
-        sdir=$(session_dir "$repo" "$sid")
-        [[ -d "$sdir" ]] && run_as_root rm -rf "$sdir"
-    fi
+    run_as_root rm -rf "$sdir"
 
     echo "removed: $selected"
 }

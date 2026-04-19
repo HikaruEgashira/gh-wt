@@ -20,7 +20,10 @@ is_mounted() {
 live_overlay_lowerdirs() {
     awk '$3 == "overlay" { print $4 }' /proc/mounts \
         | tr ',' '\n' \
-        | sed -n 's/^lowerdir=//p'
+        | sed -n 's/^lowerdir=//p' \
+        | while IFS= read -r lower; do
+            printf '%b\n' "$lower"
+        done
 }
 
 check_mountpoint_free() {

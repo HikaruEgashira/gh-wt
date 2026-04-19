@@ -60,7 +60,7 @@ to v1.
 
 ## Architecture
 
-```
+```text
 ~/.cache/gh-wt/<repo-id>/
 ├── ref/<tree-sha>/       # raw working tree at a commit tree SHA (immutable)
 └── sessions/<sid>/
