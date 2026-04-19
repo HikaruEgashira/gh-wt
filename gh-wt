@@ -14,10 +14,12 @@ Usage:
   gh wt list                 List worktrees (wraps git worktree list)
   gh wt remove               Select a session via fzf and remove it
   gh wt gc                   Delete unreferenced cache entries
+  gh wt doctor               Verify the platform overlay backend is healthy
   gh wt -- <command>         Run <command> inside the selected session dir
   gh wt <command>            Run <command> with selected session path as arg
 
-Requires: Linux 5.11+, OverlayFS, mount capability (root or passwordless sudo).
+Requires: Linux 5.11+ with OverlayFS (root or passwordless sudo) OR
+          macOS 26+ with the gh-wt-overlay FSKit System Extension installed.
 EOF
 }
 
@@ -42,6 +44,9 @@ case "$cmd" in
     gc)
         require_env
         cmd_gc
+        ;;
+    doctor)
+        cmd_doctor
         ;;
     --)
         shift

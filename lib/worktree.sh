@@ -100,7 +100,7 @@ cmd_add() {
     if ! overlay_mount "$ref_path" "$sdir/upper" "$sdir/workdir" "$mountpoint"; then
         mv "$sdir/upper/.git" "$mountpoint/.git" 2>/dev/null || true
         git -C "$repo" worktree remove --force "$mountpoint" >/dev/null 2>&1 || true
-        run_as_root rm -rf "$sdir"
+        remove_session_dir "$sdir"
         rmdir "$mountpoint" 2>/dev/null || true
         die "overlay mount failed"
     fi
@@ -148,7 +148,7 @@ cmd_remove() {
     fi
 
     git -C "$repo" worktree remove --force "$selected"
-    run_as_root rm -rf "$sdir"
+    remove_session_dir "$sdir"
 
     echo "removed: $selected"
 }
@@ -170,6 +170,34 @@ cmd_exec_with() {
     exec "$@" "$selected"
 }
 
+cmd_doctor() {
+    case "$(uname -s)" in
+        Linux)
+            echo "platform: Linux"
+            check_kernel && echo "  kernel >= 5.11: ok"
+            check_overlay_fs && echo "  overlayfs available: ok"
+            if have_mount_cap; then
+                echo "  mount capability: ok"
+            else
+                echo "  mount capability: MISSING (need root or passwordless sudo)" >&2
+                exit 1
+            fi
+            ;;
+        Darwin)
+            echo "platform: Darwin"
+            check_macos_version && echo "  macOS 26+: ok"
+            if command -v gh-wt-mount-overlay >/dev/null 2>&1; then
+                echo "  helper CLI: ok"
+                gh-wt-mount-overlay doctor || exit 1
+            else
+                echo "  helper CLI: MISSING (install gh-wt-overlay.app)" >&2
+                exit 1
+            fi
+            ;;
+        *) die "unsupported platform: $(uname -s)" ;;
+    esac
+}
+
 cmd_gc() {
     local repo
     repo=$(require_main_repo)
@@ -184,7 +212,7 @@ cmd_gc() {
     while IFS= read -r -d '' ref; do
         if ! grep -Fxq "$ref" <<<"$live_lowers"; then
             echo "gc: $ref"
-            run_as_root rm -rf "$ref"
+            remove_cache_path "$ref"
             removed=$((removed + 1))
         fi
     done < <(find "$base/ref" -mindepth 1 -maxdepth 1 -type d -print0)
