@@ -1,108 +1,55 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-[[ -f "$SCRIPT_DIR/lib/worktree.sh" ]] && source "$SCRIPT_DIR/lib/worktree.sh"
-[[ -f "$SCRIPT_DIR/lib/cache.sh" ]] && source "$SCRIPT_DIR/lib/cache.sh"
+source "$SCRIPT_DIR/lib/env.sh"
+source "$SCRIPT_DIR/lib/cache.sh"
+source "$SCRIPT_DIR/lib/overlay.sh"
+source "$SCRIPT_DIR/lib/worktree.sh"
 
-if [ -z "$1" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
-    echo "Usage:"
-    echo "  gh wt list          ... List git worktrees in current repository"
-    echo "  gh wt add <branch> [path] ... Add a new worktree in current repository"
-    echo "  gh wt remove        ... Remove a worktree in current repository"
-    echo "  gh wt co <pr-number>  ... Checkout a PR as a new worktree"
-    echo "  gh wt -- <command>  ... Search via fzf and run <command> in the selected worktree"
-    echo "  gh wt <command>     ... Search via fzf and run <command> with selected worktree as argument"
-    exit 0
+usage() {
+    cat <<'EOF'
+Usage:
+  gh wt add <branch> [path]  Create an overlay-backed worktree session
+  gh wt list                 List worktrees (wraps git worktree list)
+  gh wt remove               Select a session via fzf and remove it
+  gh wt gc                   Delete unreferenced cache entries
+  gh wt -- <command>         Run <command> inside the selected session dir
+  gh wt <command>            Run <command> with selected session path as arg
 
-# gh wt list
-elif [ "$1" == "list" ]; then
-    current_repo=$(require_current_repo)
-    echo "Worktrees in current repository ($current_repo):"
-    (cd "$current_repo" && git worktree list 2>/dev/null) || echo "No worktrees found"
+Requires: Linux 5.11+, OverlayFS, mount capability (root or passwordless sudo).
+EOF
+}
 
-# gh wt add
-elif [ "$1" == "add" ]; then
-    if [ -z "$2" ]; then
-        echo "Error: Branch name is required"
-        echo "Usage: gh wt add <branch> [path]"
-        exit 1
-    fi
-
-    current_repo=$(require_current_repo)
-    echo "Using current repository: $current_repo"
-
-    branch="$2"
-    if [ -n "$3" ]; then
-        worktree_path="$3"
-    else
-        worktree_path="$current_repo-$branch"
-    fi
-
-    echo "Creating worktree for branch '$branch' at '$worktree_path'"
-    add_worktree_for_branch "$current_repo" "$branch" "$worktree_path" true
-    type setup_worktree &>/dev/null && setup_worktree "$worktree_path"
-    echo "Worktree created successfully!"
-
-# gh wt co <pr-number>
-elif [ "$1" == "co" ]; then
-    if [ -z "$2" ]; then
-        echo "Error: PR number is required"
-        echo "Usage: gh wt co <pr-number>"
-        exit 1
-    fi
-
-    pr_number="$2"
-
-    branch=$(gh pr view "$pr_number" --json headRefName -q .headRefName 2>/dev/null)
-    if [ -z "$branch" ]; then
-        echo "Error: Could not find PR #$pr_number"
-        exit 1
-    fi
-
-    echo "PR #$pr_number -> branch: $branch"
-
-    current_repo=$(require_current_repo)
-    worktree_path="$current_repo-$branch"
-
-    echo "Creating worktree for branch '$branch' at '$worktree_path'"
-
-    (cd "$current_repo" && git fetch origin)
-    add_worktree_for_branch "$current_repo" "$branch" "$worktree_path" false
-    type setup_worktree &>/dev/null && setup_worktree "$worktree_path"
-    echo "Worktree created successfully!"
-
-# gh wt remove
-elif [ "$1" == "remove" ] || [ "$1" == "rm" ]; then
-    current_repo=$(require_current_repo)
-    echo "Available worktrees in current repository:"
-
-    selected_worktree=$(select_worktree "$current_repo" "Select worktree to remove: ") || exit 0
-
-    if [ -n "$selected_worktree" ]; then
-        echo "Removing worktree: $selected_worktree"
-        (cd "$current_repo" && git worktree remove --force "$selected_worktree")
-        echo "Worktree removed successfully!"
-    fi
-
-# gh wt -- <command>
-elif [ "$1" == "--" ]; then
-    shift
-    current_repo=$(require_current_repo)
-
-    selected_worktree=$(select_worktree "$current_repo") || exit 0
-
-    if [ -n "$selected_worktree" ]; then
-        cd "$selected_worktree"
-        exec "$@"
-    fi
-
-# gh wt <command>
-else
-    current_repo=$(require_current_repo)
-
-    selected_worktree=$(select_worktree "$current_repo") || exit 0
-
-    if [ -n "$selected_worktree" ]; then
-        exec "$@" "$selected_worktree"
-    fi
-fi
+cmd="${1:-}"
+case "$cmd" in
+    "" | "-h" | "--help")
+        usage
+        ;;
+    add)
+        shift
+        require_env
+        cmd_add "$@"
+        ;;
+    list)
+        require_env
+        cmd_list
+        ;;
+    remove | rm)
+        require_env
+        cmd_remove
+        ;;
+    gc)
+        require_env
+        cmd_gc
+        ;;
+    --)
+        shift
+        require_env
+        cmd_exec_in "$@"
+        ;;
+    *)
+        require_env
+        cmd_exec_with "$@"
+        ;;
+esac
