@@ -27,7 +27,7 @@
         <key>NSExtensionPointIdentifier</key>
         <string>com.apple.fskit.fsmodule</string>
         <key>NSExtensionPrincipalClass</key>
-        <string>$(PRODUCT_MODULE_NAME).OverlayFileSystem</string>
+        <string>$(PRODUCT_MODULE_NAME).GhWtOverlayUnaryExtension</string>
     </dict>
     <key>FSPersonalities</key>
     <dict>

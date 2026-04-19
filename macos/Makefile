@@ -50,19 +50,38 @@ helper:
 # bundle layout, so we drive swiftc directly.
 extension: $(EXT_BUNDLE)
 
-$(EXT_BUNDLE): $(EXT_SOURCES) $(CORE_SOURCES) App/Extension-Info.plist | $(APP_BUNDLE)
+CORE_LIB_DIR := $(BUILD)/OverlayCore
+CORE_LIB := $(CORE_LIB_DIR)/libOverlayCore.a
+CORE_SWIFTMODULE := $(CORE_LIB_DIR)/OverlayCore.swiftmodule
+
+$(CORE_LIB) $(CORE_SWIFTMODULE): $(CORE_SOURCES)
+	@mkdir -p "$(CORE_LIB_DIR)"
+	$(SWIFTC) \
+	    -target $(TARGET_TRIPLE) \
+	    -parse-as-library \
+	    -emit-library -static \
+	    -emit-module \
+	    -module-name OverlayCore \
+	    -emit-module-path "$(CORE_SWIFTMODULE)" \
+	    -o "$(CORE_LIB)" \
+	    $(CORE_SOURCES)
+
+$(EXT_BUNDLE): $(EXT_SOURCES) $(CORE_LIB) $(CORE_SWIFTMODULE) App/Extension-Info.plist | $(APP_BUNDLE)
 	@mkdir -p "$(EXT_BUNDLE)/Contents/MacOS" "$(EXT_BUNDLE)/Contents/Resources"
 	$(SWIFTC) \
 	    -target $(TARGET_TRIPLE) \
+	    -parse-as-library \
 	    -emit-executable \
 	    -module-name $(EXT_NAME) \
 	    -framework FSKit \
 	    -framework Foundation \
 	    -framework OSLog \
+	    -I "$(CORE_LIB_DIR)" \
+	    -L "$(CORE_LIB_DIR)" -lOverlayCore \
 	    -o "$(EXT_BUNDLE)/Contents/MacOS/$(EXT_NAME)" \
-	    $(CORE_SOURCES) $(EXT_SOURCES)
+	    $(EXT_SOURCES)
 	cp App/Extension-Info.plist "$(EXT_BUNDLE)/Contents/Info.plist"
-	$(PLBUDDY) -c "Set :NSExtension:NSExtensionPrincipalClass $(EXT_NAME).OverlayFileSystem" \
+	$(PLBUDDY) -c "Set :NSExtension:NSExtensionPrincipalClass $(EXT_NAME).GhWtOverlayUnaryExtension" \
 	    "$(EXT_BUNDLE)/Contents/Info.plist"
 
 app: $(APP_BUNDLE) extension
@@ -71,6 +90,7 @@ $(APP_BUNDLE): $(APP_SOURCES) App/Info.plist
 	@mkdir -p "$(APP_BUNDLE)/Contents/MacOS" "$(APP_BUNDLE)/Contents/Resources"
 	$(SWIFTC) \
 	    -target $(TARGET_TRIPLE) \
+	    -parse-as-library \
 	    -emit-executable \
 	    -module-name $(APP_NAME)App \
 	    -framework SwiftUI \
