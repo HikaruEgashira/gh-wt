@@ -11,7 +11,7 @@ enum Doctor {
         ok = check("gh-wt-overlay extension activated", isExtensionActivated) && ok
 
         if !ok {
-            FileHandle.standardError.write(Data("\nSee macos/README.md for setup instructions.\n".utf8))
+            FileHandle.standardError.write(Data("\nSee docs/distribution.md for setup instructions.\n".utf8))
             exit(1)
         }
     }

@@ -33,7 +33,7 @@ check_macos_version() {
 
 check_fskit_helper() {
     command -v gh-wt-mount-overlay >/dev/null 2>&1 \
-        || die "gh-wt-mount-overlay helper not in PATH (install gh-wt-overlay.app, see macos/README.md)"
+        || die "gh-wt-mount-overlay helper not in PATH (see docs/distribution.md for install instructions)"
 }
 
 check_repo_sanity() {
