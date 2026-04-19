@@ -15,7 +15,7 @@ Overlay-backed git worktree sessions for GitHub CLI.
 gh extension install HikaruEgashira/gh-wt
 ```
 
-macOS requires an overlay backend. Run `gh wt doctor` for details.
+An overlay backend is required. Run `gh wt doctor` to verify setup.
 
 ## Usage
 
