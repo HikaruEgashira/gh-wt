@@ -1,4 +1,4 @@
-// swift-tools-version:6.0
+// swift-tools-version:6.2
 //
 // gh-wt-overlay — Swift Package for the macOS overlay implementation.
 //
