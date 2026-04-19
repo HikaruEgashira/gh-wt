@@ -28,6 +28,13 @@ CODESIGN := /usr/bin/codesign
 
 DEPLOYMENT_TARGET := 26.0
 
+# Default to a single-arch build matching the host. Release artefacts
+# that need to ship universal should build each arch separately and
+# lipo them together — swiftc does not produce a fat binary when given
+# multiple -target flags in one invocation (the last one wins).
+TARGET_ARCH ?= $(shell uname -m)
+TARGET_TRIPLE := $(TARGET_ARCH)-apple-macos$(DEPLOYMENT_TARGET)
+
 EXT_SOURCES := $(wildcard Sources/GhWtOverlayExtension/*.swift)
 CORE_SOURCES := $(wildcard Sources/OverlayCore/*.swift)
 APP_SOURCES := $(wildcard App/*.swift)
@@ -46,8 +53,7 @@ extension: $(EXT_BUNDLE)
 $(EXT_BUNDLE): $(EXT_SOURCES) $(CORE_SOURCES) App/Extension-Info.plist | $(APP_BUNDLE)
 	@mkdir -p "$(EXT_BUNDLE)/Contents/MacOS" "$(EXT_BUNDLE)/Contents/Resources"
 	$(SWIFTC) \
-	    -target arm64-apple-macos$(DEPLOYMENT_TARGET) \
-	    -target x86_64-apple-macos$(DEPLOYMENT_TARGET) \
+	    -target $(TARGET_TRIPLE) \
 	    -emit-executable \
 	    -module-name $(EXT_NAME) \
 	    -framework FSKit \
@@ -64,8 +70,7 @@ app: $(APP_BUNDLE) extension
 $(APP_BUNDLE): $(APP_SOURCES) App/Info.plist
 	@mkdir -p "$(APP_BUNDLE)/Contents/MacOS" "$(APP_BUNDLE)/Contents/Resources"
 	$(SWIFTC) \
-	    -target arm64-apple-macos$(DEPLOYMENT_TARGET) \
-	    -target x86_64-apple-macos$(DEPLOYMENT_TARGET) \
+	    -target $(TARGET_TRIPLE) \
 	    -emit-executable \
 	    -module-name $(APP_NAME)App \
 	    -framework SwiftUI \
