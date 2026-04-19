@@ -19,9 +19,24 @@ The overlay backend is platform-specific: **OverlayFS** on Linux and a
 
 ## Install
 
+**Linux**
+
 ```bash
 gh extension install HikaruEgashira/gh-wt
 ```
+
+**macOS** (requires 26+)
+
+```bash
+gh extension install HikaruEgashira/gh-wt   # shell + helper CLI
+brew install --cask gh-wt-overlay           # FSKit System Extension bundle
+open /Applications/GhWtOverlay.app          # one-time activation
+gh wt doctor                                # verify
+```
+
+`gh wt doctor` tells you exactly what's missing and how to fix it.
+Full distribution model (gh-extension-precompile + Homebrew Cask + MDM
+profile for enterprise) is documented in [`macos/README.md`](macos/README.md).
 
 ## Usage
 
