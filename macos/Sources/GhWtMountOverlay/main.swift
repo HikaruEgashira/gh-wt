@@ -2,10 +2,15 @@
 // System Extension.
 //
 // Usage:
-//   gh-wt-mount-overlay mount   --lower L --upper U --mountpoint M
-//   gh-wt-mount-overlay unmount --mountpoint M
+//   gh-wt-mount-overlay mount   [--backend fskit] --lower L --upper U --mountpoint M
+//   gh-wt-mount-overlay unmount [--backend fskit] --mountpoint M
 //   gh-wt-mount-overlay list-lowers
 //   gh-wt-mount-overlay doctor
+//
+// --backend is accepted for shell-side symmetry with the macFUSE helper
+// (gh-wt-mount-overlay-fuse). Only `fskit` is valid here; `macfuse` is
+// rejected with a hint so the dispatcher bug is caught loudly instead of
+// silently mounting via the wrong backend.
 //
 // The first three are called from `lib/overlay.sh` on Darwin. `doctor` is
 // surfaced as `gh wt doctor` for users to verify their setup.
@@ -18,8 +23,8 @@ let argv = CommandLine.arguments
 func usage() -> Never {
     FileHandle.standardError.write(Data("""
     usage:
-      gh-wt-mount-overlay mount   --lower <dir> --upper <dir> --mountpoint <dir>
-      gh-wt-mount-overlay unmount --mountpoint <dir>
+      gh-wt-mount-overlay mount   [--backend fskit] --lower <dir> --upper <dir> --mountpoint <dir>
+      gh-wt-mount-overlay unmount [--backend fskit] --mountpoint <dir>
       gh-wt-mount-overlay list-lowers
       gh-wt-mount-overlay doctor
     """.utf8))
@@ -33,13 +38,27 @@ func die(_ msg: String) -> Never {
 
 guard argv.count >= 2 else { usage() }
 
+func requireFskitBackend(_ opts: [String: String]) {
+    guard let backend = opts["--backend"] else { return }
+    switch backend {
+    case "fskit":
+        return
+    case "macfuse":
+        die("--backend macfuse is served by gh-wt-mount-overlay-fuse, not this binary")
+    default:
+        die("unknown --backend: \(backend) (expected fskit)")
+    }
+}
+
 do {
     switch argv[1] {
     case "mount":
         let opts = parseFlags(Array(argv.dropFirst(2)), required: ["--lower", "--upper", "--mountpoint"])
+        requireFskitBackend(opts)
         try MountClient.mount(lower: opts["--lower"]!, upper: opts["--upper"]!, mountpoint: opts["--mountpoint"]!)
     case "unmount":
         let opts = parseFlags(Array(argv.dropFirst(2)), required: ["--mountpoint"])
+        requireFskitBackend(opts)
         try MountClient.unmount(mountpoint: opts["--mountpoint"]!)
     case "list-lowers":
         for lower in MountRegistry.shared.liveLowers() {

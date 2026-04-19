@@ -171,9 +171,13 @@ cmd_exec_with() {
 }
 
 cmd_doctor() {
-    case "$(uname -s)" in
-        Linux)
-            echo "platform: Linux"
+    local backend
+    backend=$(resolve_backend)
+    echo "platform: $(uname -s)"
+    echo "backend:  $backend${GH_WT_BACKEND:+ (GH_WT_BACKEND=$GH_WT_BACKEND)}"
+
+    case "$backend" in
+        overlayfs)
             check_kernel && echo "  kernel >= 5.11: ok"
             check_overlay_fs && echo "  overlayfs available: ok"
             if have_mount_cap; then
@@ -183,8 +187,7 @@ cmd_doctor() {
                 exit 1
             fi
             ;;
-        Darwin)
-            echo "platform: Darwin"
+        fskit)
             check_macos_version && echo "  macOS 26+: ok"
             if command -v gh-wt-mount-overlay >/dev/null 2>&1; then
                 echo "  helper CLI: ok"
@@ -194,7 +197,22 @@ cmd_doctor() {
                 exit 1
             fi
             ;;
-        *) die "unsupported platform: $(uname -s)" ;;
+        macfuse)
+            if macfuse_kext_available; then
+                echo "  macFUSE installed: ok"
+            else
+                echo "  macFUSE installed: MISSING (brew install --cask macfuse)" >&2
+                exit 1
+            fi
+            if command -v gh-wt-mount-overlay-fuse >/dev/null 2>&1; then
+                echo "  helper CLI: ok"
+                gh-wt-mount-overlay-fuse doctor 2>/dev/null || true
+            else
+                echo "  helper CLI: MISSING (gh-wt-mount-overlay-fuse not in PATH)" >&2
+                exit 1
+            fi
+            ;;
+        *) die "unresolved backend: $backend" ;;
     esac
 }
 

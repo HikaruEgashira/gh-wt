@@ -21,12 +21,10 @@ CASES_DIR="$HERE/cases"
 
 case "$(uname -s)" in
     Linux)
-        BACKEND=linux
+        BACKEND=overlayfs
         ;;
     Darwin)
-        BACKEND=darwin
-        command -v gh-wt-mount-overlay >/dev/null \
-            || { echo "gh-wt-mount-overlay not in PATH" >&2; exit 2; }
+        BACKEND=fskit
         ;;
     *)
         echo "unsupported platform: $(uname -s)" >&2
@@ -40,15 +38,42 @@ if [[ "${1:-}" == "--backend" ]]; then
     shift 2
 fi
 
+# Accept both legacy (linux|darwin) and explicit (overlayfs|fskit|macfuse)
+# names so existing CI invocations keep working.
+case "$MOUNT_BACKEND" in
+    linux)  MOUNT_BACKEND=overlayfs ;;
+    darwin) MOUNT_BACKEND=fskit ;;
+esac
+
+case "$MOUNT_BACKEND" in
+    overlayfs) ;;
+    fskit)
+        command -v gh-wt-mount-overlay >/dev/null \
+            || { echo "gh-wt-mount-overlay not in PATH" >&2; exit 2; }
+        ;;
+    macfuse)
+        command -v gh-wt-mount-overlay-fuse >/dev/null \
+            || { echo "gh-wt-mount-overlay-fuse not in PATH" >&2; exit 2; }
+        ;;
+    *)
+        echo "unknown --backend: $MOUNT_BACKEND (expected overlayfs|fskit|macfuse)" >&2
+        exit 2
+        ;;
+esac
+
 mount_overlay() {
     case "$MOUNT_BACKEND" in
-        linux)
+        overlayfs)
             sudo mount -t overlay overlay \
                 -o "lowerdir=$LOWER,upperdir=$UPPER,workdir=$WORK" \
                 "$MNT"
             ;;
-        darwin)
-            gh-wt-mount-overlay mount \
+        fskit)
+            gh-wt-mount-overlay mount --backend fskit \
+                --lower "$LOWER" --upper "$UPPER" --mountpoint "$MNT"
+            ;;
+        macfuse)
+            gh-wt-mount-overlay-fuse mount \
                 --lower "$LOWER" --upper "$UPPER" --mountpoint "$MNT"
             ;;
     esac
@@ -56,8 +81,9 @@ mount_overlay() {
 
 umount_overlay() {
     case "$MOUNT_BACKEND" in
-        linux)  sudo umount "$MNT" || true ;;
-        darwin) gh-wt-mount-overlay unmount --mountpoint "$MNT" || true ;;
+        overlayfs) sudo umount "$MNT" || true ;;
+        fskit)     gh-wt-mount-overlay --backend fskit unmount --mountpoint "$MNT" || true ;;
+        macfuse)   gh-wt-mount-overlay-fuse unmount --mountpoint "$MNT" || true ;;
     esac
 }
 

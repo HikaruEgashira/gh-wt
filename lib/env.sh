@@ -36,6 +36,16 @@ check_fskit_helper() {
         || die "gh-wt-mount-overlay helper not in PATH (see docs/distribution.md for install instructions)"
 }
 
+check_macfuse_installed() {
+    macfuse_kext_available \
+        || die "macFUSE not installed (expected /Library/Filesystems/macfuse.fs — brew install --cask macfuse)"
+}
+
+check_macfuse_helper() {
+    command -v gh-wt-mount-overlay-fuse >/dev/null 2>&1 \
+        || die "gh-wt-mount-overlay-fuse helper not in PATH (see docs/distribution.md)"
+}
+
 check_repo_sanity() {
     local repo="$1"
     local is_bare
@@ -58,18 +68,24 @@ have_mount_cap() {
 }
 
 require_env() {
-    case "$(uname -s)" in
-        Linux)
+    local backend
+    backend=$(resolve_backend)
+    case "$backend" in
+        overlayfs)
             check_kernel
             check_overlay_fs
             have_mount_cap || die "mount requires root or passwordless sudo"
             ;;
-        Darwin)
+        fskit)
             check_macos_version
             check_fskit_helper
             ;;
+        macfuse)
+            check_macfuse_installed
+            check_macfuse_helper
+            ;;
         *)
-            die "unsupported platform: $(uname -s)"
+            die "unresolved backend: $backend"
             ;;
     esac
 }
@@ -82,14 +98,14 @@ run_as_root() {
     fi
 }
 
-# Remove a session dir. On Linux, OverlayFS upper is owned by root because
-# mount runs as root; on Darwin, FSKit runs in the user's session and the
-# upper is user-owned, so plain rm is correct.
+# Remove a session dir. OverlayFS upper is owned by root because mount runs
+# as root; the macOS backends run in the user's session and the upper is
+# user-owned, so plain rm is correct there.
 remove_session_dir() {
     local sdir="$1"
-    case "$(uname -s)" in
-        Linux)  run_as_root rm -rf "$sdir" ;;
-        *)      rm -rf "$sdir" ;;
+    case "$(resolve_backend)" in
+        overlayfs) run_as_root rm -rf "$sdir" ;;
+        *)         rm -rf "$sdir" ;;
     esac
 }
 
@@ -98,8 +114,8 @@ remove_session_dir() {
 # the ref via overlay copy-up — which it shouldn't, but be defensive).
 remove_cache_path() {
     local path="$1"
-    case "$(uname -s)" in
-        Linux)  run_as_root rm -rf "$path" ;;
-        *)      rm -rf "$path" ;;
+    case "$(resolve_backend)" in
+        overlayfs) run_as_root rm -rf "$path" ;;
+        *)         rm -rf "$path" ;;
     esac
 }

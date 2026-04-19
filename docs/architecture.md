@@ -48,8 +48,19 @@ macOS (FSKit is userspace).
 
 ## Overlay backend
 
-Platform differences live in two shell functions (`overlay_mount` /
-`overlay_umount` in `lib/overlay.sh`); everything else is platform-neutral.
+Backend selection is driven by `lib/backend.sh`, which reads `GH_WT_BACKEND`
+(default `auto`) and maps it to one of:
+
+| backend     | OS       | helper binary                 |
+| ----------- | -------- | ----------------------------- |
+| `overlayfs` | Linux    | kernel `mount -t overlay`     |
+| `fskit`     | macOS 26+| `gh-wt-mount-overlay` (XPC → FSKit) |
+| `macfuse`   | macOS    | `gh-wt-mount-overlay-fuse` (libfuse)|
+
+`auto` on macOS prefers `fskit` when the helper is present and the host is
+macOS 26+; otherwise it falls back to `macfuse`. Platform differences live
+entirely in `lib/overlay.sh` (backend dispatch) and `lib/env.sh`
+(per-backend preflight); everything above is backend-neutral.
 
 ### Linux — kernel OverlayFS
 
@@ -109,6 +120,38 @@ wt gc` reads those (via `gh-wt-mount-overlay list-lowers`) to know
 which references are still pinned. Records are cross-checked against
 `mount(8)` output and stale ones are cleaned opportunistically.
 
+### macOS — macFUSE
+
+```
+gh wt add <branch>
+   └── overlay_mount lower upper work mountpoint        (lib/overlay.sh)
+         └── gh-wt-mount-overlay-fuse mount …           (libfuse CLI)
+               └── libfuse → /Library/Filesystems/macfuse.fs kext
+                     └── callbacks delegate to OverlayCore semantics
+```
+
+Why a separate binary (`gh-wt-mount-overlay-fuse`) rather than a `--backend
+macfuse` flag on the FSKit helper: linking libfuse into the FSKit binary
+would make its installability depend on macFUSE being present, defeating
+the point of keeping them independent. The two helpers share `OverlayCore`
+(same semantics, same test suite) but link against different host APIs.
+
+`gh-wt-mount-overlay-fuse` must expose the same CLI contract as the FSKit
+helper:
+
+- `mount --lower L --upper U --mountpoint M`
+- `unmount --mountpoint M`
+- `list-lowers` — one live lower path per line
+- `doctor` — exit non-zero when misconfigured
+
+Its mount registry lives at
+`~/Library/Application Support/gh-wt-overlay-fuse/mounts/<hash>.json` so
+the two backends can coexist without clobbering each other.
+
+The actual libfuse adapter (C shim + Swift wrapper around OverlayCore)
+ships in a dedicated Swift target — see `docs/distribution.md` for build
+instructions.
+
 ## `gh wt list`
 
 Thin wrapper around `git worktree list` — gh-wt doesn't maintain its
@@ -135,9 +178,13 @@ session stays alive in the main repo.
 
 ## Design invariants
 
-- **Single path per platform**: no `--overlay`/`--no-overlay` flags, no
-  `git worktree`-only fallback. The supported configurations are the
-  supported configurations.
+- **One overlay semantics, multiple backends**: `OverlayCore` is the single
+  source of truth for merge/whiteout/copy-up behaviour. Backends
+  (`overlayfs`, `fskit`, `macfuse`) are thin adapters and must not diverge
+  semantically — any observable difference is a bug to be fixed in the
+  adapter, not exposed as a flag. No `--overlay`/`--no-overlay`, no
+  `git worktree`-only fallback. (Previously worded as "single path per
+  platform"; relaxed in v0.x to allow the macFUSE adapter on older macOS.)
 - **Git-native**: sessions are real linked worktrees. No custom `.git`
   plumbing, no alternates (which would create GC hazards).
 - **Reference immutability**: references are write-once per tree SHA.

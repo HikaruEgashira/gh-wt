@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/lib/env.sh"
+source "$SCRIPT_DIR/lib/backend.sh"
 source "$SCRIPT_DIR/lib/cache.sh"
 source "$SCRIPT_DIR/lib/overlay.sh"
 source "$SCRIPT_DIR/lib/worktree.sh"
@@ -18,8 +19,12 @@ Usage:
   gh wt -- <command>         Run <command> inside the selected session dir
   gh wt <command>            Run <command> with selected session path as arg
 
-Requires: Linux 5.11+ with OverlayFS (root or passwordless sudo) OR
-          macOS 26+ with the gh-wt-overlay FSKit System Extension installed.
+Requires: Linux 5.11+ with OverlayFS (root or passwordless sudo), OR
+          macOS 26+ with the gh-wt-overlay FSKit System Extension, OR
+          macOS with macFUSE + gh-wt-mount-overlay-fuse helper.
+
+Backend selection:
+  GH_WT_BACKEND=auto|overlayfs|fskit|macfuse (default: auto)
 EOF
 }
 

@@ -20,7 +20,11 @@ cost `1 × repo_size + Σ per-session diffs` on disk.
 gh extension install HikaruEgashira/gh-wt
 ```
 
-**macOS** (26+, Apple silicon or Intel)
+Backend: kernel OverlayFS (always).
+
+**macOS** — pick one backend.
+
+*FSKit (default on macOS 26+, sandboxed, no kext):*
 
 ```bash
 gh extension install HikaruEgashira/gh-wt   # shell + helper CLI
@@ -29,11 +33,33 @@ open /Applications/GhWtOverlay.app          # one-time activation
 gh wt doctor                                # verify
 ```
 
-`gh wt doctor` tells you exactly what's missing (extension not installed,
-not activated, wrong macOS version, …) and prints the commands to fix it.
+*macFUSE (works on pre-macOS 26, needs a third-party kext):*
 
-Not supported: Windows, older macOS, kernels without OverlayFS, bare
-repos, submodule repos (deferred to v1).
+```bash
+gh extension install HikaruEgashira/gh-wt
+brew install --cask macfuse                 # reboot + approve in System Settings
+brew install gh-wt-mount-overlay-fuse       # macFUSE helper CLI
+GH_WT_BACKEND=macfuse gh wt doctor
+```
+
+`gh wt doctor` tells you exactly what's missing (extension not installed,
+not activated, wrong macOS version, macFUSE not approved, …) and prints
+the commands to fix it.
+
+### Selecting a backend
+
+`gh-wt` auto-detects the best available backend. Override with
+`GH_WT_BACKEND`:
+
+| value       | platform | backend                       |
+| ----------- | -------- | ----------------------------- |
+| `auto`      | any      | pick the best available (default) |
+| `overlayfs` | Linux    | kernel OverlayFS              |
+| `fskit`     | macOS 26+| FSKit System Extension        |
+| `macfuse`   | macOS    | macFUSE (libfuse, userspace)  |
+
+Not supported: Windows, kernels without OverlayFS, bare repos, submodule
+repos (deferred to v1).
 
 ## Usage
 
