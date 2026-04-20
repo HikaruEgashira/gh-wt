@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           bash -n gh-wt
-          for f in lib/*.sh tests/parity/run.sh tests/parity/cases/*.sh; do
+          for f in lib/*.sh; do
             bash -n "$f"
           done
 
@@ -36,23 +36,4 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
           shellcheck --version
-          shellcheck -S warning gh-wt lib/*.sh tests/parity/run.sh
-          shellcheck -S warning --shell=bash tests/parity/cases/*.sh
-
-  parity-linux:
-    name: parity (OverlayFS)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-        with:
-          persist-credentials: false
-
-      - name: probe OverlayFS
-        run: |
-          set -euo pipefail
-          grep -qw overlay /proc/filesystems
-          sudo -n true
-
-      - name: run parity suite
-        run: sudo ./tests/parity/run.sh
+          shellcheck -S warning gh-wt lib/*.sh

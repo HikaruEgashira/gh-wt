@@ -22,10 +22,10 @@ gh extension install HikaruEgashira/gh-wt
 $ gh wt --help
 Usage:
   gh wt list                ... List worktrees
-  gh wt add <branch> [path] ... Add a worktree (CoW when supported)
+  gh wt add <branch> [path] ... Add a worktree
   gh wt remove              ... Remove a worktree (interactive)
   gh wt gc                  ... Delete unreferenced cache entries
-  gh wt *your_command*      ... Search via fzf and run the command in the selected worktree
+  gh wt *your_command*      ... Search via fzf and run the command
 ```
 
 ### Examples

@@ -12,17 +12,12 @@ source "$SCRIPT_DIR/lib/worktree.sh"
 usage() {
     cat <<'EOF'
 Usage:
-  gh wt add <branch> [path]  Create a worktree (CoW where the platform supports it)
+  gh wt add <branch> [path]  Create a worktree
   gh wt list                 List worktrees (wraps git worktree list)
   gh wt remove               Select a worktree via fzf and remove it
   gh wt gc                   Delete unreferenced cache entries
-  gh wt doctor               Check that the tool can operate on this host
   gh wt -- <command>         Run <command> inside the selected worktree
   gh wt <command>            Run <command> with the selected worktree path as arg
-
-The implementation auto-selects the best available strategy per platform
-(Linux OverlayFS, macOS APFS clonefile, or a plain git worktree fallback).
-There is no user-facing knob — it just works.
 EOF
 }
 

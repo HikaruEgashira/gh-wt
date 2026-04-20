@@ -262,34 +262,6 @@ cmd_exec_with() {
     exec "$@" "$selected"
 }
 
-cmd_doctor() {
-    local mode
-    mode=$(resolve_backend)
-    echo "platform: $(uname -s)"
-    case "$mode" in
-        apfs)
-            echo "mode:     APFS clonefile(2) — helper-free CoW"
-            apfs_clone_available || { echo "  clonefile: unavailable on this volume" >&2; exit 1; }
-            echo "  clonefile: ok"
-            ;;
-        overlayfs)
-            echo "mode:     Linux OverlayFS"
-            check_kernel && echo "  kernel >= 5.11: ok"
-            check_overlay_fs && echo "  overlayfs available: ok"
-            if have_mount_cap; then
-                echo "  mount capability: ok"
-            else
-                echo "  mount capability: MISSING (need root or passwordless sudo)" >&2
-                exit 1
-            fi
-            ;;
-        none)
-            echo "mode:     plain git worktree (no CoW support on this host)"
-            ;;
-        *) die "unresolved platform mode: $mode" ;;
-    esac
-}
-
 cmd_gc() {
     if [[ "$(resolve_backend)" == "none" ]]; then
         echo "nothing to gc (backend=none uses no cache)"
