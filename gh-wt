@@ -43,9 +43,6 @@ case "$cmd" in
         require_env
         cmd_gc
         ;;
-    doctor)
-        cmd_doctor
-        ;;
     --)
         shift
         require_env
