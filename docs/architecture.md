@@ -1,23 +1,22 @@
 # Architecture
 
-`gh wt add <branch>` creates a **CoW overlay worktree**: a shared
-read-only *reference* (lower) plus a per-session writable *upper*. The
-physical repo is never duplicated; overlay creation is a cheap mount.
+`gh wt add <branch>` creates a CoW-shared git worktree. A shared read-only
+*reference* holds the committed tree contents; the worktree itself is either
+an OverlayFS mount on top of that reference (Linux) or an APFS clonefile(2)
+copy of it (macOS). The physical repo is never duplicated.
 
 ## Cache layout
 
 ```text
 ~/.cache/gh-wt/<repo-id>/
 ├── ref/<tree-sha>/       # raw working tree at a commit tree SHA (immutable)
-└── sessions/<sid>/
-    ├── upper/            # per-session CoW layer (holds .git, user writes)
-    └── workdir/          # overlayfs scratch (Linux only)
-
-<mountpoint>/             # overlay of lower=ref/<tree-sha>, upper=session upper
+└── sessions/<sid>/       # overlayfs only: per-worktree upper + workdir
+    ├── upper/
+    └── workdir/
 ```
 
 - `<repo-id>` = SHA-1 of the main repo's absolute path.
-- `<tree-sha>` = `git rev-parse <branch>^{tree}`. Sessions whose branch
+- `<tree-sha>` = `git rev-parse <branch>^{tree}`. Worktrees whose branch
   heads map to the same tree share the same reference automatically.
 - `<sid>` = basename of the linked-worktree gitdir, which git generates
   from the branch name (with collision suffixing).
@@ -25,53 +24,22 @@ physical repo is never duplicated; overlay creation is a cheap mount.
 References are never mutated after creation — if a branch moves, a new
 reference is materialised lazily on the next `gh wt add`.
 
-## `gh wt add` flow
+## Platform auto-selection
 
-1. Resolve the branch's commit tree SHA.
-2. If `<cache>/ref/<tree-sha>/` doesn't exist, materialise it:
-   `git archive <branch> | tar -x -C <ref-path>`. No `.git` goes in.
-3. Create `<cache>/sessions/<sid>/{upper,workdir}`.
-4. `git worktree add --no-checkout <mountpoint> <branch>` — this
-   registers a linked worktree with git and writes a `.git` pointer
-   file at the mountpoint.
-5. Move that `.git` file into the session upper (so it survives the
-   overlay mount sitting on top of it).
-6. `overlay_mount lower=<ref> upper=<session upper> workdir=<scratch>
-   mountpoint=<mountpoint>`.
-7. `git config --worktree core.checkStat=minimal` and
-   `core.trustctime=false` on the linked worktree so git doesn't
-   get confused by inode changes during copy-up.
-8. `git update-index --refresh`.
+`lib/backend.sh::resolve_backend` picks a strategy from host capabilities —
+there is no env var, no config file, and no `set-` subcommand. The tool
+picks what works.
 
-On a warm cache, steps 3–8 take ~50–100 ms on Linux and ~200–400 ms on
-macOS (FSKit is userspace).
+| Platform     | Strategy                             | Kernel / FS call   |
+| ------------ | ------------------------------------ | ------------------ |
+| Linux 5.11+  | OverlayFS mount                      | `mount -t overlay` |
+| macOS (APFS) | `cp -c` clonefile into the worktree  | `clonefile(2)`     |
+| other        | Plain `git worktree add`, no sharing | —                  |
 
-## Overlay backend
+`lib/worktree.sh::cmd_add` branches on the resolved strategy; the three
+paths share the reference-cache build step (`git archive | tar`).
 
-Backend selection is driven by `lib/backend.sh`. Resolution order is
-`GH_WT_BACKEND` env var, then the XDG config file
-(`${XDG_CONFIG_HOME:-~/.config}/gh-wt/config` — written by
-`gh wt set-backend`), then `auto`. Supported values:
-
-| backend     | OS       | helper binary                 |
-| ----------- | -------- | ----------------------------- |
-| `overlayfs` | Linux    | kernel `mount -t overlay`     |
-| `fskit`     | macOS 26+| `gh-wt-mount-overlay` (XPC → FSKit) |
-| `macfuse`   | macOS    | `gh-wt-mount-overlay-fuse` (libfuse)|
-| `none`      | any      | no overlay — plain `git worktree add` |
-
-`auto` on macOS prefers `fskit` when the helper is present and the host is
-macOS 26+; otherwise it falls back to `macfuse`. Platform differences live
-entirely in `lib/overlay.sh` (backend dispatch) and `lib/env.sh`
-(per-backend preflight); everything above is backend-neutral.
-
-`none` short-circuits the cache/session machinery in `lib/worktree.sh` —
-it skips reference materialisation, upper/workdir allocation, and mount —
-so it works wherever `git` does, at the cost of a full checkout per
-worktree. Use it as the portable fallback or on CI runners where the
-kernel helper is unavailable.
-
-### Linux — kernel OverlayFS
+### Linux — OverlayFS
 
 ```bash
 mount -t overlay overlay \
@@ -79,141 +47,69 @@ mount -t overlay overlay \
   $MNT
 ```
 
-Needs root or passwordless `sudo`. OverlayFS handles whiteouts
-(character devices) and opaque dirs (`trusted.overlay.opaque=y` xattr)
-natively.
+Needs root or passwordless `sudo`. The session's `.git` pointer is moved
+into `upper/` before mount so it survives the overlay and remains writable.
 
-### macOS — FSKit System Extension
+### macOS — APFS clonefile
 
-```
-gh wt add <branch>
-   └── overlay_mount lower upper work mountpoint        (lib/overlay.sh)
-         └── gh-wt-mount-overlay mount …                (Swift CLI)
-               └── /sbin/mount -t gh-wt-overlay URL mnt (FSKit-aware)
-                     └── fskitd resolves via FSSupportedSchemes
-                           └── extn decodes FSGenericURLResource.url
-                                 └── extn calls Overlay(lower:upper:)
+```bash
+cp -cRp $REF_PATH/<entry> $MNT/
 ```
 
-Implementation lives under `macos/` as a Swift Package:
+`cp -c` issues `clonefile(2)`, which creates CoW links at the block level.
+Files share blocks with the reference until modified; modifying a file
+triggers CoW only for the diverging extents.
 
-| Path                                | Role                                                  |
-| ----------------------------------- | ----------------------------------------------------- |
-| `Sources/OverlayCore/`              | Pure-Swift overlay semantics.                         |
-| `Sources/GhWtOverlayExtension/`     | FSKit `FSUnaryFileSystem` adapter around OverlayCore. |
-| `Sources/GhWtMountOverlay/`         | `gh-wt-mount-overlay` CLI.                            |
-| `App/`                              | Host app bundle (`GhWtOverlay.app`).                  |
+Semantics vs OverlayFS:
+- No separate upper/workdir — the worktree is the only materialised copy.
+- No mount state: removal is a plain `git worktree remove`.
+- The reference it cloned from is recorded in `<worktree>/.gh-wt-ref` so
+  `gh wt gc` can tell which references are still pinned. The marker file
+  is added to the worktree's private `info/exclude` so it doesn't show up
+  in `git status`.
 
-The Swift extension is a thin adapter — all semantic decisions live in
-`OverlayCore` so the same code is exercised by unit tests and by the
-Linux/macOS parity harness.
+### Fallback — plain `git worktree`
 
-### Whiteout & opaque encoding (macOS)
-
-OverlayCore encodes deletions in the upper layer as xattrs on plain
-files, avoiding character-device whiteouts (which need root):
-
-| Marker     | xattr name                  | Target              | Meaning                                 |
-| ---------- | --------------------------- | ------------------- | --------------------------------------- |
-| Whiteout   | `com.github.gh-wt.whiteout` | empty regular file  | Hides a lower entry of the same name.   |
-| Opaque dir | `com.github.gh-wt.opaque`   | upper directory     | Hides all of lower's contents below it. |
-
-The upper dir is otherwise a normal POSIX tree — `cp -R` and re-mount
-elsewhere is safe.
-
-### Live mount registry (macOS)
-
-macOS has no `/proc/mounts`-style way to recover the lower path of a
-live overlay. `gh-wt-mount-overlay` records each mount as JSON under
-`~/Library/Application Support/gh-wt-overlay/mounts/<hash>.json`. `gh
-wt gc` reads those (via `gh-wt-mount-overlay list-lowers`) to know
-which references are still pinned. Records are cross-checked against
-`mount(8)` output and stale ones are cleaned opportunistically.
-
-### macOS — macFUSE
-
-```
-gh wt add <branch>
-   └── overlay_mount lower upper work mountpoint        (lib/overlay.sh)
-         └── gh-wt-mount-overlay-fuse mount …           (libfuse CLI)
-               └── libfuse → /Library/Filesystems/macfuse.fs kext
-                     └── callbacks delegate to OverlayCore semantics
-```
-
-Why a separate binary (`gh-wt-mount-overlay-fuse`) rather than a `--backend
-macfuse` flag on the FSKit helper: linking libfuse into the FSKit binary
-would make its installability depend on macFUSE being present, defeating
-the point of keeping them independent. The two helpers share `OverlayCore`
-(same semantics, same test suite) but link against different host APIs.
-
-`gh-wt-mount-overlay-fuse` must expose the same CLI contract as the FSKit
-helper:
-
-- `mount --lower L --upper U --mountpoint M`
-- `unmount --mountpoint M`
-- `list-lowers` — one live lower path per line
-- `doctor` — exit non-zero when misconfigured
-
-Its mount registry lives at
-`~/Library/Application Support/gh-wt-overlay-fuse/mounts/<hash>.json` so
-the two backends can coexist without clobbering each other.
-
-The actual libfuse adapter (C shim + Swift wrapper around OverlayCore)
-ships in a dedicated Swift target — see `docs/distribution.md` for build
-instructions.
+When neither OverlayFS nor APFS clonefile is available, `cmd_add` runs
+`git worktree add --no-checkout` then kicks off `git reset --hard HEAD`
+in the background so the caller returns immediately. Progress lands in
+`.gh-wt-checkout.log` inside the new worktree.
 
 ## `gh wt list`
 
-Thin wrapper around `git worktree list` — gh-wt doesn't maintain its
-own index. Every overlay session is a real linked worktree.
+Thin wrapper around `git worktree list`. gh-wt doesn't maintain its own
+index — every worktree is a real linked worktree.
 
 ## `gh wt remove`
 
-1. fzf-select a session.
-2. Check no processes hold files open in the mountpoint
-   (`fuser`/`lsof`).
-3. Unmount the overlay.
-4. `git worktree remove --force`.
-5. `rm -rf <session dir>`.
+1. fzf-select a worktree.
+2. OverlayFS: check no processes hold files open (`fuser`), unmount.
+3. `git worktree remove --force`.
+4. OverlayFS: `rm -rf <session dir>`.
 
-Reference is *not* removed — that's `gh wt gc`'s job.
+References are not removed — that's `gh wt gc`'s job.
 
 ## `gh wt gc`
 
-Walks `<cache>/ref/`, diffs against currently-live overlay lower dirs
-(Linux: `/proc/mounts`; macOS: the live mount registry), and removes
-references that nothing is using. Protection from git's own GC comes
-from the linked-worktree machinery — any commit reachable from a live
-session stays alive in the main repo.
+Walks `<cache>/ref/`, diffs against currently-live references, and removes
+the rest. "Live" means:
+
+- OverlayFS: appears as a `lowerdir=` in `/proc/mounts`.
+- APFS: appears in some worktree's `.gh-wt-ref` sidecar.
+
+Protection from git's own GC comes from the linked-worktree machinery —
+any commit reachable from a live worktree stays alive in the main repo.
 
 ## Design invariants
 
-- **One overlay semantics, multiple backends**: `OverlayCore` is the single
-  source of truth for merge/whiteout/copy-up behaviour. Backends
-  (`overlayfs`, `fskit`, `macfuse`) are thin adapters and must not diverge
-  semantically — any observable difference is a bug to be fixed in the
-  adapter, not exposed as a flag. No `--overlay`/`--no-overlay`, no
-  `git worktree`-only fallback. (Previously worded as "single path per
-  platform"; relaxed in v0.x to allow the macFUSE adapter on older macOS.)
-- **Git-native**: sessions are real linked worktrees. No custom `.git`
+- **Platform auto-selects**. No user-facing "backend" knob. The best
+  strategy for the host is picked and that's what runs.
+- **Git-native**. Worktrees are real linked worktrees. No custom `.git`
   plumbing, no alternates (which would create GC hazards).
-- **Reference immutability**: references are write-once per tree SHA.
+- **Reference immutability**. References are write-once per tree SHA.
   Branches that advance create new references on the next `gh wt add`;
-  old references are collected by `gh wt gc` when no session pins them.
-- **No dependency cache layer**: overlay's lower is the only sharing
-  mechanism. Per-session dependency directories are intentional — route
-  heavy build artefacts to scratch via env vars if you care.
-
-## Known gaps
-
-- **FSKit API drift.** `OverlayVolume.swift` targets the macOS 26 FSKit
-  surface. When Apple revs it, the protocol conformances/signatures
-  need adjusting; OverlayCore's semantics don't change.
-- **No kernel attribute cache on macOS.** FSKit doesn't yet expose
-  `entry_timeout`/`attr_timeout`. Large `readdir` loops run slower than
-  on Linux OverlayFS.
-- **xattr passthrough.** OverlayCore doesn't yet expose user xattrs via
-  FSKit's `XattrOperations`. Add when a real workload needs it.
-- **Single-user activation.** FSKit extensions activate per user.
-  Multi-user hosts need each user to run the activation flow once (or
-  an MDM profile — see `docs/distribution.md`).
+  old references are collected by `gh wt gc` when no worktree pins them.
+- **No dependency cache layer**. Block-level sharing (OverlayFS lower or
+  APFS clone) is the only sharing mechanism. Per-worktree dependency
+  directories are intentional — route heavy build artefacts to scratch
+  via env vars if you care.

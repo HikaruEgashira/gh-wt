@@ -52,30 +52,6 @@ check_overlay_fs() {
         || die "OverlayFS not available (no 'overlay' in /proc/filesystems)"
 }
 
-check_macos_version() {
-    local product major
-    product=$(sw_vers -productVersion 2>/dev/null) \
-        || die "cannot determine macOS version"
-    major="${product%%.*}"
-    [[ "$major" =~ ^[0-9]+$ ]] || die "cannot parse macOS version: $product"
-    (( major >= 26 )) || die "macOS 26+ required for FSKit overlay (found $product)"
-}
-
-check_fskit_helper() {
-    command -v gh-wt-mount-overlay >/dev/null 2>&1 \
-        || die "gh-wt-mount-overlay helper not in PATH (see docs/distribution.md for install instructions)"
-}
-
-check_macfuse_installed() {
-    macfuse_kext_available \
-        || die "macFUSE not installed (expected /Library/Filesystems/macfuse.fs — brew install --cask macfuse)"
-}
-
-check_macfuse_helper() {
-    command -v gh-wt-mount-overlay-fuse >/dev/null 2>&1 \
-        || die "gh-wt-mount-overlay-fuse helper not in PATH (see docs/distribution.md)"
-}
-
 check_repo_sanity() {
     local repo="$1"
     local is_bare
@@ -106,13 +82,9 @@ require_env() {
             check_overlay_fs
             have_mount_cap || die "mount requires root or passwordless sudo"
             ;;
-        fskit)
-            check_macos_version
-            check_fskit_helper
-            ;;
-        macfuse)
-            check_macfuse_installed
-            check_macfuse_helper
+        apfs)
+            apfs_clone_available \
+                || die "APFS clonefile(2) not supported here — cache/worktree must live on an APFS volume"
             ;;
         none)
             # Plain git worktree; no external dependency to check.
