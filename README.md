@@ -7,17 +7,14 @@
 🔹<a href="https://github.com/HikaruEgashira/gh-wt/issues">Request Feature</a>
 </h3>
 
-Fast CoW-backed git worktree sessions for GitHub CLI. Linux uses OverlayFS,
-macOS uses APFS clonefile(2), and falls back to plain worktrees elsewhere —
-no configuration required.
+Fast and Ligtweight CoW-backed git worktree sessions . Linux uses OverlayFS,
+macOS uses APFS clonefile(2).
 
 ## Installation
 
 ```bash
 gh extension install HikaruEgashira/gh-wt
 ```
-
-Run `gh wt doctor` to verify.
 
 ## Usage
 
@@ -28,7 +25,6 @@ Usage:
   gh wt add <branch> [path] ... Add a worktree (CoW when supported)
   gh wt remove              ... Remove a worktree (interactive)
   gh wt gc                  ... Delete unreferenced cache entries
-  gh wt doctor              ... Check that the tool can operate on this host
   gh wt *your_command*      ... Search via fzf and run the command in the selected worktree
 ```
 
