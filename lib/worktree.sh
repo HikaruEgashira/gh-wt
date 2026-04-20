@@ -78,6 +78,61 @@ cmd_add() {
     mountpoint=$(canonical_path "$mountpoint")
     [[ ! -e "$mountpoint" ]] || die "mountpoint already exists: $mountpoint"
 
+    if [[ "$(resolve_backend)" == "apfs" ]]; then
+        local tree_sha
+        tree_sha=$(tree_sha_for_branch "$repo" "$branch") \
+            || die "cannot resolve tree for '$branch'"
+
+        ensure_cache_dirs "$repo"
+
+        local ref_path
+        ref_path=$(ref_dir "$repo" "$tree_sha")
+        if [[ ! -d "$ref_path" ]]; then
+            echo "preparing reference $tree_sha..."
+            build_reference "$repo" "$tree_sha" "$ref_path" \
+                || die "failed to build reference $tree_sha"
+        fi
+
+        git -C "$repo" worktree add --no-checkout "$mountpoint" "$branch" \
+            || die "git worktree add failed"
+
+        # clonefile(2) via `cp -c`: files share blocks with the reference
+        # until modified, so N sessions cost ~1x disk for unchanged content.
+        # -p preserves timestamps so git's stat cache stays accurate against
+        # the committed tree.
+        local entry
+        while IFS= read -r -d '' entry; do
+            if ! cp -cRp "$entry" "$mountpoint/"; then
+                git -C "$repo" worktree remove --force "$mountpoint" >/dev/null 2>&1 || true
+                rm -rf "$mountpoint"
+                die "apfs clone failed (is $mountpoint on the same APFS volume as $ref_path?)"
+            fi
+        done < <(find "$ref_path" -mindepth 1 -maxdepth 1 -print0)
+
+        # Remember which reference this worktree cloned from so `gc` knows
+        # it's still live. Hide the marker from `git status` via the linked
+        # worktree's private info/exclude (scoped to this worktree only).
+        printf '%s\n' "$ref_path" > "$mountpoint/.gh-wt-ref"
+        local wt_gitdir
+        wt_gitdir=$(git -C "$mountpoint" rev-parse --git-path info/exclude 2>/dev/null) || wt_gitdir=""
+        if [[ -n "$wt_gitdir" ]]; then
+            mkdir -p "$(dirname "$wt_gitdir")"
+            grep -qxF '.gh-wt-ref' "$wt_gitdir" 2>/dev/null \
+                || printf '.gh-wt-ref\n' >> "$wt_gitdir"
+        fi
+
+        # Working tree already matches HEAD; just sync the index so
+        # `git status` reports a clean tree.
+        git -C "$mountpoint" reset --mixed HEAD >/dev/null 2>&1 || true
+
+        configure_worktree_stat "$repo" "$mountpoint"
+
+        echo "worktree ready: $mountpoint"
+        echo "  branch:    $branch"
+        echo "  reference: $ref_path (APFS clonefile)"
+        return 0
+    fi
+
     if [[ "$(resolve_backend)" == "none" ]]; then
         # --no-checkout returns as soon as the .git pointer is written. Files
         # stream in via a detached `git reset --hard` that survives the parent
@@ -95,8 +150,7 @@ cmd_add() {
         disown "$pid" 2>/dev/null || true
         echo "worktree ready: $mountpoint"
         echo "  branch:    $branch"
-        echo "  backend:   none (plain git worktree)"
-        echo "  checkout:  async (pid=$pid, log=$log)"
+        echo "  checkout:  async (pid=$pid, log=$log) — plain git worktree"
         return 0
     fi
 
@@ -138,9 +192,9 @@ cmd_add() {
     configure_worktree_stat "$repo" "$mountpoint"
     git -C "$mountpoint" update-index --refresh >/dev/null 2>&1 || true
 
-    echo "session ready: $mountpoint"
+    echo "worktree ready: $mountpoint"
     echo "  branch:    $branch"
-    echo "  reference: $ref_path"
+    echo "  reference: $ref_path (OverlayFS lower)"
     echo "  session:   $sdir"
 }
 
@@ -166,11 +220,13 @@ cmd_remove() {
     [[ -n "$selected" ]] || return 0
     [[ "$selected" != "$repo" ]] || die "refusing to remove main worktree"
 
-    if [[ "$(resolve_backend)" == "none" ]]; then
-        git -C "$repo" worktree remove --force "$selected"
-        echo "removed: $selected"
-        return 0
-    fi
+    case "$(resolve_backend)" in
+        none|apfs)
+            git -C "$repo" worktree remove --force "$selected"
+            echo "removed: $selected"
+            return 0
+            ;;
+    esac
 
     sid=$(session_id_from_gitfile "$selected") \
         || die "not a gh-wt session (no linked gitdir pointer): $selected"
@@ -207,18 +263,17 @@ cmd_exec_with() {
 }
 
 cmd_doctor() {
-    local backend
-    backend=$(resolve_backend)
+    local mode
+    mode=$(resolve_backend)
     echo "platform: $(uname -s)"
-    echo "backend:  $backend${GH_WT_BACKEND:+ (GH_WT_BACKEND=$GH_WT_BACKEND)}"
-    echo "config:   $(config_path)"
-
-    case "$backend" in
-        none)
-            echo "  plain git worktree mode (no overlay, deps symlinked from parent)"
-            return 0
+    case "$mode" in
+        apfs)
+            echo "mode:     APFS clonefile(2) — helper-free CoW"
+            apfs_clone_available || { echo "  clonefile: unavailable on this volume" >&2; exit 1; }
+            echo "  clonefile: ok"
             ;;
         overlayfs)
+            echo "mode:     Linux OverlayFS"
             check_kernel && echo "  kernel >= 5.11: ok"
             check_overlay_fs && echo "  overlayfs available: ok"
             if have_mount_cap; then
@@ -228,48 +283,11 @@ cmd_doctor() {
                 exit 1
             fi
             ;;
-        fskit)
-            check_macos_version && echo "  macOS 26+: ok"
-            if command -v gh-wt-mount-overlay >/dev/null 2>&1; then
-                echo "  helper CLI: ok"
-                gh-wt-mount-overlay doctor || exit 1
-            else
-                echo "  helper CLI: MISSING (install gh-wt-overlay.app)" >&2
-                exit 1
-            fi
+        none)
+            echo "mode:     plain git worktree (no CoW support on this host)"
             ;;
-        macfuse)
-            if macfuse_kext_available; then
-                echo "  macFUSE installed: ok"
-            else
-                echo "  macFUSE installed: MISSING (brew install --cask macfuse)" >&2
-                exit 1
-            fi
-            if command -v gh-wt-mount-overlay-fuse >/dev/null 2>&1; then
-                echo "  helper CLI: ok"
-                gh-wt-mount-overlay-fuse doctor 2>/dev/null || true
-            else
-                echo "  helper CLI: MISSING (gh-wt-mount-overlay-fuse not in PATH)" >&2
-                exit 1
-            fi
-            ;;
-        *) die "unresolved backend: $backend" ;;
+        *) die "unresolved platform mode: $mode" ;;
     esac
-}
-
-cmd_set_backend() {
-    local value="${1:-}"
-    [[ -n "$value" ]] || die "usage: gh wt set-backend <auto|overlayfs|fskit|macfuse|none>"
-    case "$value" in
-        auto|overlayfs|fskit|macfuse|none) ;;
-        *) die "invalid backend: $value (expected auto|overlayfs|fskit|macfuse|none)" ;;
-    esac
-    write_configured_backend "$value"
-    echo "backend=$value written to $(config_path)"
-    if [[ -n "${GH_WT_BACKEND:-}" ]]; then
-        echo "note: GH_WT_BACKEND=$GH_WT_BACKEND is set in the environment and" >&2
-        echo "      overrides the config file — unset it for the new value to apply." >&2
-    fi
 }
 
 cmd_gc() {
@@ -284,7 +302,24 @@ cmd_gc() {
     [[ -d "$base/ref" ]] || { echo "nothing to gc"; return 0; }
 
     local live_lowers
-    live_lowers=$(live_overlay_lowerdirs | sort -u)
+    if [[ "$(resolve_backend)" == "apfs" ]]; then
+        # apfs has no mount state — each worktree stores its ref path in a
+        # .gh-wt-ref sidecar. Walk the worktree list and collect them.
+        # `|| true` guards against set -e killing the sub when no sidecar
+        # file exists (common during partial cleanup).
+        live_lowers=$(
+            git -C "$repo" worktree list --porcelain \
+                | awk '/^worktree / { print substr($0, 10) }' \
+                | while IFS= read -r wt; do
+                    if [[ -f "$wt/.gh-wt-ref" ]]; then
+                        cat "$wt/.gh-wt-ref"
+                    fi
+                done \
+                | sort -u || true
+        )
+    else
+        live_lowers=$(live_overlay_lowerdirs | sort -u)
+    fi
 
     local removed=0 ref
     while IFS= read -r -d '' ref; do

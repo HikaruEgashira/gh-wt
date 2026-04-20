@@ -1,27 +1,17 @@
-# Top-level Makefile — dispatches to the right per-platform build.
+# Shell-only project Makefile.
 #
-#   make all    → Linux: shell syntax + shellcheck (mirrors CI shell-lint).
-#                 macOS: delegates to macos/Makefile `all` (helper + bundle).
-#   make lint   → shell syntax + shellcheck (both platforms).
-#   make test   → Linux: parity suite (needs root + OverlayFS).
-#                 macOS: OverlayCoreTests via `swift test`.
-#
-# The macOS bundle targets (helper / extension / app / sign / install) live
-# in macos/Makefile; run them with `$(MAKE) -C macos <target>` or cd in.
+#   make all / make lint  → bash -n + shellcheck
+#   make test             → Linux: parity suite (needs root + OverlayFS)
+#                           macOS: parity suite not applicable (OverlayFS-specific)
 
 UNAME_S := $(shell uname -s)
 
 SHELL_SCRIPTS := gh-wt $(wildcard lib/*.sh) tests/parity/run.sh
 CASE_SCRIPTS  := $(wildcard tests/parity/cases/*.sh)
 
-.PHONY: all lint syntax shellcheck test clean help
+.PHONY: all lint syntax shellcheck test help
 
-ifeq ($(UNAME_S),Darwin)
-all:
-	$(MAKE) -C macos all
-else
 all: lint
-endif
 
 lint: syntax shellcheck
 
@@ -38,22 +28,15 @@ shellcheck:
 	    echo "shellcheck: not installed, skipping"; \
 	fi
 
-ifeq ($(UNAME_S),Darwin)
-test:
-	$(MAKE) -C macos test
-else
+ifeq ($(UNAME_S),Linux)
 test:
 	sudo ./tests/parity/run.sh
-endif
-
-clean:
-ifeq ($(UNAME_S),Darwin)
-	$(MAKE) -C macos clean
+else
+test:
+	@echo "parity suite is OverlayFS-specific; run on Linux"
 endif
 
 help:
 	@echo "Targets:"
-	@echo "  all        — platform-appropriate default build / check"
-	@echo "  lint       — bash -n + shellcheck on shell sources"
-	@echo "  test       — Linux: parity suite; macOS: swift test"
-	@echo "  clean      — remove macOS build artefacts"
+	@echo "  all / lint — bash -n + shellcheck on shell sources"
+	@echo "  test       — Linux: parity suite"

@@ -1,90 +1,37 @@
 #!/usr/bin/env bash
-# tests/parity/run.sh — overlay semantics parity harness.
+# tests/parity/run.sh — OverlayFS semantics parity harness.
 #
 # Runs each script under tests/parity/cases/ against a freshly-mounted
-# overlay. The harness is platform-agnostic: it picks up the right backend
-# from $(uname -s) and gives the test case access to:
+# OverlayFS. Only Linux is supported; macOS uses APFS clonefile which
+# has different semantics (no lower/upper layering) and is exercised
+# by smoke tests instead.
+#
+# Each case writes its expectations against the *user-visible mountpoint*,
+# and has access to:
 #
 #   $LOWER       absolute path to the (read-only) lower dir
 #   $UPPER       absolute path to the writable upper dir
 #   $MNT         absolute path where the overlay is mounted
 #   assert_eq    helper that diffs expected vs actual
-#
-# Each case writes its expectations against the *user-visible mountpoint*,
-# which is the contract this overlay must honour identically on Linux
-# OverlayFS and the macOS FSKit implementation.
 
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CASES_DIR="$HERE/cases"
 
-case "$(uname -s)" in
-    Linux)
-        BACKEND=overlayfs
-        ;;
-    Darwin)
-        BACKEND=fskit
-        ;;
-    *)
-        echo "unsupported platform: $(uname -s)" >&2
-        exit 2
-        ;;
-esac
-
-MOUNT_BACKEND="$BACKEND"
-if [[ "${1:-}" == "--backend" ]]; then
-    MOUNT_BACKEND="$2"
-    shift 2
+if [[ "$(uname -s)" != "Linux" ]]; then
+    echo "parity suite only runs on Linux (OverlayFS)" >&2
+    exit 2
 fi
 
-# Accept both legacy (linux|darwin) and explicit (overlayfs|fskit|macfuse)
-# names so existing CI invocations keep working.
-case "$MOUNT_BACKEND" in
-    linux)  MOUNT_BACKEND=overlayfs ;;
-    darwin) MOUNT_BACKEND=fskit ;;
-esac
-
-case "$MOUNT_BACKEND" in
-    overlayfs) ;;
-    fskit)
-        command -v gh-wt-mount-overlay >/dev/null \
-            || { echo "gh-wt-mount-overlay not in PATH" >&2; exit 2; }
-        ;;
-    macfuse)
-        command -v gh-wt-mount-overlay-fuse >/dev/null \
-            || { echo "gh-wt-mount-overlay-fuse not in PATH" >&2; exit 2; }
-        ;;
-    *)
-        echo "unknown --backend: $MOUNT_BACKEND (expected overlayfs|fskit|macfuse)" >&2
-        exit 2
-        ;;
-esac
-
 mount_overlay() {
-    case "$MOUNT_BACKEND" in
-        overlayfs)
-            sudo mount -t overlay overlay \
-                -o "lowerdir=$LOWER,upperdir=$UPPER,workdir=$WORK" \
-                "$MNT"
-            ;;
-        fskit)
-            gh-wt-mount-overlay mount --backend fskit \
-                --lower "$LOWER" --upper "$UPPER" --mountpoint "$MNT"
-            ;;
-        macfuse)
-            gh-wt-mount-overlay-fuse mount \
-                --lower "$LOWER" --upper "$UPPER" --mountpoint "$MNT"
-            ;;
-    esac
+    sudo mount -t overlay overlay \
+        -o "lowerdir=$LOWER,upperdir=$UPPER,workdir=$WORK" \
+        "$MNT"
 }
 
 umount_overlay() {
-    case "$MOUNT_BACKEND" in
-        overlayfs) sudo umount "$MNT" || true ;;
-        fskit)     gh-wt-mount-overlay --backend fskit unmount --mountpoint "$MNT" || true ;;
-        macfuse)   gh-wt-mount-overlay-fuse unmount --mountpoint "$MNT" || true ;;
-    esac
+    sudo umount "$MNT" || true
 }
 
 setup_layers() {
@@ -135,11 +82,11 @@ run_case() {
     type fixture >/dev/null && fixture
     mount_overlay
     if verify; then
-        printf "PASS: %s (%s)\n" "$case_name" "$MOUNT_BACKEND"
+        printf "PASS: %s\n" "$case_name"
         teardown_layers
         return 0
     else
-        printf "FAIL: %s (%s)\n" "$case_name" "$MOUNT_BACKEND" >&2
+        printf "FAIL: %s\n" "$case_name" >&2
         teardown_layers
         return 1
     fi
@@ -163,5 +110,5 @@ for case_path in "$CASES_DIR"/*.sh; do
 done
 
 echo
-echo "summary: $((total - failed)) / $total passed (backend=$MOUNT_BACKEND)"
+echo "summary: $((total - failed)) / $total passed"
 [[ "$failed" -eq 0 ]]
