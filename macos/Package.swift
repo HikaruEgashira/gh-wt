@@ -24,12 +24,20 @@ let package = Package(
             type: .dynamic,
             targets: ["GhWtFileProvider"]
         ),
+        .executable(
+            name: "FirstTouchBench",
+            targets: ["FirstTouchBench"]
+        ),
     ],
     targets: [
         .target(
             name: "GhWtFileProvider",
             path: "FileProviderExtension",
             exclude: ["Info.plist"]
+        ),
+        .executableTarget(
+            name: "FirstTouchBench",
+            path: "FirstTouchBench"
         ),
     ]
 )
