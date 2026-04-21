@@ -213,10 +213,50 @@ select_session() {
     fzf --prompt="$prompt" <<<"$list"
 }
 
+_list_worktree_paths() {
+    git -C "$1" worktree list --porcelain \
+        | awk '/^worktree / { print substr($0, 10) }'
+}
+
+# Match user input against an existing linked worktree. Accepts:
+#   - an absolute or relative path to the worktree root
+#   - a branch name whose linked worktree is registered
+# Returns 0 and echoes the canonical registered path on match, else 1.
+resolve_worktree_arg() {
+    local repo="$1" arg="$2"
+    [[ -n "$arg" ]] || return 1
+
+    local candidate
+    if [[ "$arg" == /* || "$arg" == ./* || "$arg" == ../* || -e "$arg" ]]; then
+        candidate=$(canonical_path "$arg" 2>/dev/null || true)
+    fi
+
+    local wt
+    while IFS= read -r wt; do
+        [[ -n "$wt" ]] || continue
+        if [[ -n "${candidate:-}" && "$wt" == "$candidate" ]]; then
+            echo "$wt"; return 0
+        fi
+        if [[ -f "$wt/.git" ]] || [[ -d "$wt/.git" ]]; then
+            local br
+            br=$(git -C "$wt" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+            if [[ -n "$br" && "$br" == "$arg" ]]; then
+                echo "$wt"; return 0
+            fi
+        fi
+    done < <(_list_worktree_paths "$repo")
+    return 1
+}
+
 cmd_remove() {
-    local repo selected sid sdir
+    local repo selected sid sdir arg="${1:-}"
     repo=$(require_main_repo)
-    selected=$(select_session "$repo" "remove: ") || return 0
+    if [[ -n "$arg" ]]; then
+        selected=$(resolve_worktree_arg "$repo" "$arg") \
+            || die "no registered worktree matches: $arg"
+    else
+        selected=$(select_session "$repo" "remove: ") || return 0
+    fi
     [[ -n "$selected" ]] || return 0
     [[ "$selected" != "$repo" ]] || die "refusing to remove main worktree"
 
