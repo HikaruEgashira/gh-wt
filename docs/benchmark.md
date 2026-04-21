@@ -266,6 +266,43 @@ Lifecycle totals (add + remove, same-tree scenario):
 The per-invocation time penalty amortises quickly when worktrees are
 kept around for hours or days of work.
 
+### 2.5 Paired add + remove in one iteration
+
+`lifecycle.sh` is a variant of the harness in which each iteration
+creates and then destroys the same worktree, so add and remove times
+come from the *same* filesystem state and the summed wall clock is a
+single developer's round-trip cost. It runs baseline, gh-wt cold, and
+gh-wt warm back-to-back on N distinct branches (`lc-{base,cold,warm}-$i`)
+and emits one TSV per condition with a `phase` column (`add` | `remove`).
+
+Unlike §2.4 — which scripts `git worktree remove` directly to sidestep
+gh-wt's fzf prompt — `lifecycle.sh` exercises the real `gh wt remove
+<target>` path (the non-interactive form of the command). That means
+the reported remove time includes gh-wt's dispatcher, env/backend
+resolution, and argv handling, on top of the underlying `git worktree
+remove --force`. On tiny repos the wrapper overhead is visible (~40 ms
+per remove on a warm shell); on linux-scale worktrees it is <2 % of
+the total remove cost and the numbers track §2.4 closely.
+
+```bash
+bash scripts/benchmark/lifecycle.sh      # N=5 per condition, all on bench rig
+N=10 bash scripts/benchmark/lifecycle.sh # denser sample
+```
+
+Output:
+
+```
+results/lifecycle_baseline.tsv    # iter branch phase real user sys
+results/lifecycle_ghwt_cold.tsv
+results/lifecycle_ghwt_warm.tsv
+```
+
+The script prints per-condition summaries (n, mean, sd, median, min,
+max, 95 % CI) for both phases inline — no extra `awk -f stats.awk`
+pass needed — so the round-trip comparison above is directly
+reproducible from a single run. See §2.1 and §2.4 for per-phase
+discussion of the numbers this script produces.
+
 ## 3. Observations
 
 - **Speed**: `git worktree add` wins on this repo and this hardware,
@@ -341,8 +378,11 @@ bash scripts/benchmark/same_tree.sh
 # extended k-scaling sweep (baseline to k=10, gh-wt to k=20)
 bash scripts/benchmark/scaling.sh
 
-# add/remove lifecycle timing
+# remove-only timing (complements §2.4)
 bash scripts/benchmark/remove.sh
+
+# paired add+remove timing in one script (§2.5)
+bash scripts/benchmark/lifecycle.sh
 
 # per-column stats
 awk -f scripts/benchmark/stats.awk /private/tmp/ghwt-bench/results/run_baseline.tsv
