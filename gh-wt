@@ -14,7 +14,8 @@ usage() {
 Usage:
   gh wt add <branch> [path]  Create a worktree
   gh wt list                 List worktrees (wraps git worktree list)
-  gh wt remove               Select a worktree via fzf and remove it
+  gh wt remove [target]      Remove a worktree; target may be a path or a
+                             branch name. Omit to pick via fzf.
   gh wt gc                   Delete unreferenced cache entries
   gh wt -- <command>         Run <command> inside the selected worktree
   gh wt <command>            Run <command> with the selected worktree path as arg
@@ -36,8 +37,9 @@ case "$cmd" in
         cmd_list
         ;;
     remove | rm)
+        shift
         require_env
-        cmd_remove
+        cmd_remove "$@"
         ;;
     gc)
         require_env
