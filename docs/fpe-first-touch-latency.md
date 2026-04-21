@@ -14,7 +14,7 @@ first workflow-level read.
 - **Our-code floor** per file: **~180 µs** (our
   `ReferenceLookup.materialise()` equivalent, measured in a Swift
   benchmark without FPE RPC).
-- **FPE RPC envelope**: **+100–500 µs** (estimated, literature-based —
+- **FPE RPC envelope**: **+200–500 µs** (estimated, literature-based —
   Apple doesn't publish a figure; published benchmarks from Nextcloud
   / OwnCloud FPE clients sit at 0.2–1 ms per round trip on comparable
   hardware). **Not measurable without a signed extension.**
@@ -52,7 +52,7 @@ parallelism `∈ {1, 4, 8}`.
 `clonefile(2)` writes inode + dirent metadata; file content is not
 touched. Size invariance is expected and confirmed.
 
-```
+```text
 size=1kb   P=1: per-call=76µs   throughput= 8 622 ops/s
 size=1kb   P=4: per-call=158µs  throughput=12 228 ops/s   ← contention
 size=16kb  P=1: per-call=79µs   throughput= 9 136 ops/s
@@ -85,7 +85,7 @@ framework) that reproduces the sequence the extension's
 **Finding:** steady-state **~180 µs per call** across file sizes, with
 one cold-cache iteration at ~390 µs before warming.
 
-```
+```text
 cold run:     393 µs/call   (first ever invocation)
 warm run 1:   195 µs/call
 warm run 2:   185 µs/call

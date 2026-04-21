@@ -57,7 +57,10 @@ make_sources() {
 
 bench() {
     local count="$1" size_kb="$2" parallel="$3"
-    local srcdir="$ROOT/src-$size_kb"
+    # cache key includes count: srcdir generated for 100 files must not be
+    # silently reused for a 1000-file run (the missing f100..f999 would
+    # produce an empty pair list and mask the problem as a zero-division).
+    local srcdir="$ROOT/src-${size_kb}-${count}"
     local dstroot="$ROOT/dst-$size_kb-$parallel"
     [[ -d "$srcdir" ]] || make_sources "$count" "$size_kb" "$srcdir"
     rm -rf "$dstroot"
@@ -95,18 +98,30 @@ bench() {
     done
 
     local wall_ns=$((t1 - t0))
-    # per-call latency in µs (sum across workers / total calls — so it's
-    # effectively "sum of kernel time / calls" regardless of parallelism)
-    local per_call_us=$((ns_total / n_total / 1000))
+    local n_success=$((n_total - fail_total))
+    if (( fail_total > 0 )); then
+        printf '[fpe-floor] WARN size=%skb P=%s: %d/%d clonefile calls failed\n' \
+            "$size_kb" "$parallel" "$fail_total" "$n_total" >&2
+    fi
+    # per-call latency in µs (sum of kernel time / successful calls —
+    # failures are excluded so a partial-failure run can't pull the mean
+    # toward zero).
+    local per_call_us=0
+    if (( n_success > 0 )); then
+        per_call_us=$((ns_total / n_success / 1000))
+    fi
     # wall-clock throughput (files per second)
-    local ops_per_sec=$((n_total * 1000000000 / wall_ns))
-    printf '%d\t%d\t%d\t%d\t%d\t%d\t%d\n' \
+    local ops_per_sec=0
+    if (( wall_ns > 0 )); then
+        ops_per_sec=$((n_success * 1000000000 / wall_ns))
+    fi
+    printf '%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\n' \
         "$count" "$size_kb" "$parallel" "$ns_total" "$wall_ns" \
-        "$per_call_us" "$ops_per_sec"
+        "$per_call_us" "$ops_per_sec" "$fail_total"
 }
 
 echo "[fpe-floor] results -> $OUT/fpe_firsttouch_floor.tsv"
-printf 'count\tsize_kb\tparallel\tsum_ns\twall_ns\tper_call_us\tops_per_sec\n' \
+printf 'count\tsize_kb\tparallel\tsum_ns\twall_ns\tper_call_us\tops_per_sec\tfail\n' \
     > "$OUT/fpe_firsttouch_floor.tsv"
 
 # Three axes: N files × file size × parallelism.

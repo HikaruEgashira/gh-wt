@@ -37,9 +37,10 @@ func materialise(srcURL: URL, dstURL: URL) throws {
 
 let args = CommandLine.arguments
 guard args.count == 4,
-      let n = Int(args[3]) else {
+      let n = Int(args[3]),
+      n > 0 else {
     FileHandle.standardError.write(
-        "usage: FirstTouchBench <src_dir> <dst_dir> <iterations>\n".data(using: .utf8)!)
+        "usage: FirstTouchBench <src_dir> <dst_dir> <iterations>  (iterations must be a positive integer)\n".data(using: .utf8)!)
     exit(2)
 }
 let srcDir = URL(fileURLWithPath: args[1], isDirectory: true)
@@ -63,7 +64,20 @@ for i in 0..<n {
 }
 let t1 = DispatchTime.now().uptimeNanoseconds
 
+// DispatchTime.uptimeNanoseconds is monotonic, but the subtraction happens
+// in UInt64 — guard the invariant explicitly so an unexpected regression
+// surfaces as an error rather than a giant wrapped value.
+guard t1 >= t0 else {
+    FileHandle.standardError.write(
+        "uptimeNanoseconds went backwards (\(t0) -> \(t1))\n".data(using: .utf8)!)
+    exit(3)
+}
 let totalNs = Int64(t1 - t0)
+guard totalNs > 0 else {
+    FileHandle.standardError.write(
+        "measured zero elapsed time over \(n) iterations\n".data(using: .utf8)!)
+    exit(3)
+}
 let perCall = totalNs / Int64(n)
 let opsPerSec = Int64(n) * 1_000_000_000 / totalNs
 print("\(n)\t\(totalNs)\t\(perCall)\t\(opsPerSec)")
