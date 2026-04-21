@@ -1,0 +1,7 @@
+method	wt_count	cache_kb	worktrees_logical_kb	total_physical_kb
+baseline	1	0	1768840	1768840
+baseline	3	0	5307232	5307232
+baseline	5	0	8844108	8844108
+gh-wt-apfs	1	1768836	1768844	3537680
+gh-wt-apfs	3	5306508	5306532	10613040
+gh-wt-apfs	5	8844088	8844128	17688216

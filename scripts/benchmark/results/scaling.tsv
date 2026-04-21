@@ -1,0 +1,11 @@
+method	wt_count	df_delta_kb
+baseline	1	1824616
+baseline	2	3646616
+baseline	5	9125732
+baseline	10	18247096
+gh-wt-apfs	1	1863504
+gh-wt-apfs	2	1908484
+gh-wt-apfs	5	2049480
+gh-wt-apfs	10	2265844
+gh-wt-apfs	15	2504632
+gh-wt-apfs	20	2710772
