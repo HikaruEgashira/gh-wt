@@ -53,12 +53,34 @@ into `upper/` before mount so it survives the overlay and remains writable.
 ### macOS — APFS clonefile
 
 ```bash
-cp -cRp $REF_PATH/<entry> $MNT/
+find $REF_PATH -mindepth 1 -maxdepth 1 -print0 \
+  | xargs -0 -n 1 -P 4 -I{} cp -cRp '{}' $MNT/
 ```
 
 `cp -c` issues `clonefile(2)`, which creates CoW links at the block level.
 Files share blocks with the reference until modified; modifying a file
 triggers CoW only for the diverging extents.
+
+Top-level entries are cloned in parallel because APFS's spine-lock
+contention is per-parent-dir; spreading work across distinct subtrees
+gives ~1.7× warm-add speedup at P=4 on Apple Silicon (P-core count is
+the empirical sweet spot — past it, contention dominates and throughput
+regresses). Override with `GH_WT_CLONE_PARALLELISM=N` (set to 1 to
+serialise for debugging or single-core hosts).
+
+### Case-insensitive filesystem guard
+
+APFS volumes are case-insensitive by default. Trees that contain paths
+differing only in case (`xt_CONNMARK.h` and `xt_connmark.h` in the linux
+kernel, ~13 such pairs) cannot be losslessly extracted by `git archive |
+tar -x`: one path silently overwrites the other and every worktree
+cloned from the resulting reference inherits the corruption.
+
+`build_reference` probes the cache volume for case-insensitivity (one
+file create + one stat) and, if positive, scans the tree for case-fold
+duplicates before extraction. Any duplicates → `die` with the offending
+paths. Case-sensitive volumes (Linux ext4/btrfs/xfs, opt-in
+case-sensitive APFS) skip the scan entirely.
 
 Semantics vs OverlayFS:
 - No separate upper/workdir — the worktree is the only materialised copy.
