@@ -10,6 +10,28 @@
 Fast and Ligtweight CoW-backed git worktree sessions . Linux uses OverlayFS,
 macOS uses APFS clonefile(2).
 
+```
+disk used (GiB) — k same-tree worktrees of the Linux kernel (1.77 GiB, 93k files)
+
+18 |                                      ●                    git worktree add  (O(N))
+   |                                   ●
+15 |                                 /
+   |                              /
+12 |                           /
+   |                        /
+ 9 |                    ●
+   |                  /
+ 6 |               /
+   |            /
+ 3 |         ●
+   |    ●           ·           ·          ·          ·          ●  gh wt add    (≈const)
+ 0 ●─────●─────────●─────────────────────●─────────●─────────●
+   0     1   2     5            10            15           20    k (# worktrees)
+```
+
+At k = 10 worktrees gh-wt uses **~8×** less disk; at k = 20, **~13×**.
+Full methodology and raw data: [`docs/benchmark.md`](./docs/benchmark.md).
+
 ## Installation
 
 ```bash
