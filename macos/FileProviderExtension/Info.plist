@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- This Info.plist is the extension-target Info.plist that Xcode
+         will copy into the .appex bundle. SwiftPM ignores it; it lives
+         here so the Xcode target or a future xcodegen spec can pick it
+         up verbatim. -->
+    <key>CFBundleDisplayName</key>
+    <string>gh-wt File Provider</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleName</key>
+    <string>GhWtFileProvider</string>
+    <key>CFBundlePackageType</key>
+    <string>XPC!</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionFileProviderSupportsEnumeration</key>
+        <true/>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.fileprovider-nonui</string>
+        <key>NSExtensionPrincipalClass</key>
+        <string>$(PRODUCT_MODULE_NAME).Extension</string>
+    </dict>
+</dict>
+</plist>
