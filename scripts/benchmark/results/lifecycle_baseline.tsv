@@ -1,0 +1,11 @@
+iter	branch	phase	real	user	sys
+0	lc-base-0	add	15.74	2.86	11.20
+0	lc-base-0	remove	7.91	0.08	7.42
+1	lc-base-1	add	14.79	2.84	11.03
+1	lc-base-1	remove	7.82	0.07	7.41
+2	lc-base-2	add	14.89	2.84	11.09
+2	lc-base-2	remove	8.13	0.08	7.60
+3	lc-base-3	add	14.86	2.82	11.04
+3	lc-base-3	remove	8.04	0.08	7.56
+4	lc-base-4	add	14.64	2.79	10.92
+4	lc-base-4	remove	7.82	0.08	7.41
