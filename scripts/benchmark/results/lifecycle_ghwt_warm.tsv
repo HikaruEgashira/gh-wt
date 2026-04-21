@@ -1,0 +1,11 @@
+iter	branch	phase	real	user	sys
+0	lc-warm-0	add	45.46	5.33	54.28
+0	lc-warm-0	remove	7.55	0.09	6.54
+1	lc-warm-1	add	45.07	5.39	52.39
+1	lc-warm-1	remove	7.53	0.09	6.55
+2	lc-warm-2	add	43.69	5.31	49.39
+2	lc-warm-2	remove	7.62	0.09	6.59
+3	lc-warm-3	add	48.01	5.39	57.44
+3	lc-warm-3	remove	7.52	0.09	6.53
+4	lc-warm-4	add	45.13	5.34	55.82
+4	lc-warm-4	remove	7.60	0.09	6.58
