@@ -136,10 +136,19 @@ Breakdown of the same runs (user + sys CPU; real time in parentheses):
   ~17 s figure here is from the prior pipeline and will be re-measured
   by the next N ≥ 20 pass (§3 critical-path item).
 - The **post-clonefile `git reset --mixed HEAD`** (refresh the index so
-  `git status` is clean against the cloned working tree) is itself
-  ~14 s on this scale — git's own warning suggests `--no-refresh`, but
-  deferring the cost only shifts the same hashing burden to the first
-  `git status`. This is the next-largest budget item after `clonefile`.
+  `git status` is clean against the cloned working tree) used to be
+  ~14 s on this scale. It is now **elided on the warm path**: reference
+  build precomputes a stat-correct index (via `read-tree` +
+  `update-index --refresh` against the just-extracted reference) and
+  parks it next to the reference as `<tree-sha>.index`. Warm add copies
+  that sidecar into the linked worktree's `index` path — O(21 MiB
+  `cp`), ~O(ms) — and `core.checkStat=minimal` + APFS `cp -cRp`
+  (preserved mtime/size) keep stat-cache hits valid for all 174 k
+  entries. On this corpus the swap lands warm add at **~18.8 s real**
+  (from 44.4 s), and the first post-add `git status` is ~1.4 s on a
+  clean tree. Fallback: if the sidecar is absent (e.g. reference built
+  by an older gh-wt) the old `reset --mixed HEAD` path runs and the
+  tree is still clean, just ~25 s slower.
 
 ### 2.3 Storage — the reason gh-wt exists
 
@@ -344,19 +353,23 @@ pass needed.
   baseline < warm < cold ordering. Remove is the tightest of all
   (CV < 1 %).
 - **Critical path next**: the dominant remaining costs in warm `add`
-  are (a) ~13 s of `clonefile(2)` (kernel-bound, only beaten by
-  parallelism), (b) ~14 s of `git reset --mixed HEAD` post-clonefile
-  (avoidable with a stat-correct prebuilt index, deferred until a
-  native helper exists), (c) ~17 s of cold-only reference build
-  (already reduced on 2026-04-22 by switching from
+  are now (a) ~13 s of `clonefile(2)` (kernel-bound, only beaten by
+  parallelism) and (b) `git worktree add --no-checkout` plus `configure
+  --worktree` book-keeping — together ~5–6 s. The old ~14 s of
+  `git reset --mixed HEAD` post-clonefile is **gone**: a stat-correct
+  index is prebuilt once per tree SHA during reference build (the
+  disposable index used by `git checkout-index --prefix=` is refreshed
+  against the extracted reference and parked as a sidecar) and copied
+  into the linked worktree's `index` at add time. That dropped warm
+  add from 44.4 s to ~18.8 s on this corpus. Cold-only reference
+  build, already reduced on 2026-04-22 by switching from
   `git archive | tar` to `git read-tree` + `git checkout-index
-  --prefix=`, ~2 s measured saving with side benefit of case-aware
-  extraction; further gains would require overlapping the reference
-  build with the clonefile phase, which costs a live-ref sidecar
-  before the ref rename is atomic — deferred). Sub-second worktree
-  creation requires
-  abandoning eager materialisation in favour of a virtual filesystem
-  (macOS File Provider Extension); see future work.
+  --prefix=` (~2 s saving plus case-aware extraction), is the next
+  target; further gains would require overlapping the reference build
+  with the clonefile phase, which costs a live-ref sidecar before the
+  ref rename is atomic — deferred. Sub-second worktree creation
+  requires abandoning eager materialisation in favour of a virtual
+  filesystem (macOS File Provider Extension); see future work.
 
 ## 4. Threats to validity
 
