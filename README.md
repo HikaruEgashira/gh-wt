@@ -38,6 +38,19 @@ Full methodology and raw data: [`docs/benchmark.md`](./docs/benchmark.md).
 gh extension install HikaruEgashira/gh-wt
 ```
 
+### Install as an agent skill
+
+Teach a skills-compatible agent (Claude Code, Copilot, Cursor, Codex, Gemini
+CLI, ...) how to drive `gh wt`:
+
+```bash
+gh skill install HikaruEgashira/gh-wt gh-wt
+```
+
+The skill in [`skills/gh-wt/`](./skills/gh-wt/SKILL.md) follows the
+[Agent Skills specification](https://agentskills.io/specification).
+Requires `gh` v2.90.0+.
+
 ## Usage
 
 ```bash
