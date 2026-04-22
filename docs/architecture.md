@@ -44,16 +44,19 @@ paths share the reference-cache build step (`git archive | tar`).
 All three backends run the same preflight sequence before touching disk:
 
 1. Resolve branch kind (`local` / `remote` / `new`).
-2. If `local`, reject when the branch is already checked out in another
+2. If `new`, require an opt-in (`--new` flag, `GH_WT_ASSUME_NEW=1`, or a
+   TTY `[y/N]` confirmation) — otherwise a typo like `mian` would
+   silently create a new branch from HEAD.
+3. If `local`, reject when the branch is already checked out in another
    worktree (`git worktree list --porcelain` → `branch refs/heads/<b>`).
-3. Canonicalise the requested mountpoint and reject if it already exists.
-4. Only now create a missing `remote`/`new` branch.
-5. Build the reference cache (cold only) and materialise the worktree.
+4. Canonicalise the requested mountpoint and reject if it already exists.
+5. Only now create a missing `remote`/`new` branch.
+6. Build the reference cache (cold only) and materialise the worktree.
 
-Steps 2–3 are intentionally ahead of step 5: a failed run must not leave
+Steps 2–4 are intentionally ahead of step 6: a failed run must not leave
 a half-built reference under `<cache>/ref/<tree-sha>/` or a stray branch
 for a typo'd name. The case-collision scan (see below) runs inside step
-5 because it needs the tree SHA.
+6 because it needs the tree SHA.
 
 ### Linux — OverlayFS
 

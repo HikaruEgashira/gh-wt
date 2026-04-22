@@ -109,9 +109,61 @@ configure_worktree_stat() {
     git -C "$mountpoint" config --worktree core.trustctime false
 }
 
+_usage_add() {
+    die "usage: gh wt add [--new|-b] <branch> [path]"
+}
+
+# Decide whether to materialise a branch that neither exists locally nor
+# matches a remote-tracking ref. Silent creation from HEAD is a footgun
+# (typo 'mian' → new branch 'mian'); require explicit opt-in via flag,
+# env var, or interactive [y/N] confirmation on a TTY.
+_confirm_new_branch() {
+    local branch="$1" allow_new="$2"
+    [[ "$allow_new" -eq 1 ]] && return 0
+    [[ "${GH_WT_ASSUME_NEW:-}" == "1" ]] && return 0
+    if [[ -t 0 && -t 2 ]]; then
+        local reply
+        printf "[gh-wt] branch '%s' does not exist. Create new from HEAD? [y/N] " \
+            "$branch" >&2
+        read -r reply || reply=""
+        case "$reply" in
+            y|Y|yes|YES|Yes) return 0 ;;
+        esac
+    fi
+    return 1
+}
+
 cmd_add() {
-    local branch="${1:-}" mountpoint="${2:-}"
-    [[ -n "$branch" ]] || die "usage: gh wt add <branch> [path]"
+    local branch="" mountpoint="" allow_new=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --new|-b) allow_new=1; shift ;;
+            --) shift
+                # End-of-options marker: remaining argv are positionals,
+                # filling whichever positional slots are still empty. Must
+                # not clobber a branch already supplied before `--` —
+                # `gh wt add foo -- bar` means branch=foo, mountpoint=bar,
+                # not the other way around.
+                while [[ $# -gt 0 ]]; do
+                    if [[ -z "$branch" ]]; then branch="$1"
+                    elif [[ -z "$mountpoint" ]]; then mountpoint="$1"
+                    else _usage_add
+                    fi
+                    shift
+                done
+                break
+                ;;
+            -*) die "unknown flag: $1 (usage: gh wt add [--new|-b] <branch> [path])" ;;
+            *)
+                if [[ -z "$branch" ]]; then branch="$1"
+                elif [[ -z "$mountpoint" ]]; then mountpoint="$1"
+                else _usage_add
+                fi
+                shift
+                ;;
+        esac
+    done
+    [[ -n "$branch" ]] || _usage_add
 
     local repo
     repo=$(require_main_repo)
@@ -119,6 +171,15 @@ cmd_add() {
 
     local kind
     kind=$(resolve_branch "$repo" "$branch")
+
+    # Block silent branch creation *before* any other work: if the user
+    # typo'd a branch name and hits a non-interactive shell, we'd rather
+    # die with a hint than create 'mian' from HEAD and build its cache.
+    if [[ "$kind" == "new" ]]; then
+        _confirm_new_branch "$branch" "$allow_new" || die \
+"branch '$branch' does not exist locally or on origin.
+Pass --new to create it from HEAD, set GH_WT_ASSUME_NEW=1 for scripted use, or check for a typo."
+    fi
 
     # Fail fast on preconditions that `git worktree add` would reject later
     # anyway. Doing this *before* `build_reference` keeps ~$(du ref) of cache

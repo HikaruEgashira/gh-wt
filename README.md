@@ -44,12 +44,17 @@ gh skill install HikaruEgashira/gh-wt gh-wt
 ```bash
 $ gh wt --help
 Usage:
-  gh wt list                ... List worktrees
-  gh wt add <branch> [path] ... Add a worktree
-  gh wt remove              ... Remove a worktree (interactive)
-  gh wt gc                  ... Delete unreferenced cache entries
-  gh wt *your_command*      ... Search via fzf and run the command
+  gh wt list                         ... List worktrees
+  gh wt add [--new|-b] <branch> [path] ... Add a worktree
+  gh wt remove                       ... Remove a worktree (interactive)
+  gh wt gc                           ... Delete unreferenced cache entries
+  gh wt *your_command*               ... Search via fzf and run the command
 ```
+
+`gh wt add` refuses to silently create a branch that doesn't already
+exist locally or as `origin/<name>`. Pass `--new` (or `-b`) to opt into
+new-branch creation from `HEAD`, or export `GH_WT_ASSUME_NEW=1` for
+scripted use. On a TTY you'll get an interactive `[y/N]` prompt instead.
 
 ### Examples
 
