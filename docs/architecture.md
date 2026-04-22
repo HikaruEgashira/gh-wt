@@ -10,6 +10,7 @@ copy of it (macOS). The physical repo is never duplicated.
 ```text
 ~/.cache/gh-wt/<repo-id>/
 ├── ref/<tree-sha>/       # raw working tree at a commit tree SHA (immutable)
+├── ref/<tree-sha>.index  # stat-correct git index for the reference above
 └── sessions/<sid>/       # overlayfs only: per-worktree upper + workdir
     ├── upper/
     └── workdir/
@@ -18,6 +19,10 @@ copy of it (macOS). The physical repo is never duplicated.
 - `<repo-id>` = SHA-1 of the main repo's absolute path.
 - `<tree-sha>` = `git rev-parse <branch>^{tree}`. Worktrees whose branch
   heads map to the same tree share the same reference automatically.
+- `<tree-sha>.index` = prebuilt git index whose stat cache matches the
+  reference's extracted files. Dropped into the linked worktree's
+  `index` at `add` time to skip the ~14 s `git reset --mixed HEAD`
+  that would otherwise rehash every file to repopulate the stat cache.
 - `<sid>` = basename of the linked-worktree gitdir, which git generates
   from the branch name (with collision suffixing).
 
@@ -121,6 +126,13 @@ Semantics vs OverlayFS:
   `gh wt gc` can tell which references are still pinned. The marker file
   is added to the worktree's private `info/exclude` so it doesn't show up
   in `git status`.
+- After clonefile, the prebuilt `<tree-sha>.index` sidecar is copied into
+  the linked worktree's `index` path (under `.git/worktrees/<sid>/`) so
+  `git status` finds a valid stat cache immediately — no post-clonefile
+  `git reset --mixed HEAD` is needed. `core.checkStat=minimal` +
+  `core.trustctime=false` (set via `configure_worktree_stat`) tell git
+  to compare only `mtime.sec` and `size`, both of which `cp -cRp`
+  preserves exactly.
 
 ### Fallback — plain `git worktree`
 

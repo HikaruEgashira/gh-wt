@@ -83,26 +83,37 @@ build_reference() {
     local repo="$1" tree_sha="$2" ref_path="$3"
     _check_case_collisions "$repo" "$tree_sha" "$(dirname "$ref_path")"
     local tmp="${ref_path}.tmp.$$"
-    local idx="${ref_path}.idx.$$"
-    rm -rf "$tmp" "$idx"
+    local pre_index="${ref_path}.index.tmp.$$"
+    rm -rf "$tmp"
+    rm -f "$pre_index"
     mkdir -p "$tmp"
-    # Populate a disposable index from the tree, then materialise it via
-    # checkout-index. Cheaper than `git archive | tar` (no pack → tar → untar
-    # round-trip) and honours the caseful names stored in the tree — tar's
-    # extractor would silently collapse case-fold pairs on APFS/HFS+, while
-    # checkout-index writes exactly the bytes git records. The upstream
-    # case-collision scan (_check_case_collisions) is still the fail-fast
-    # guard because checkout-index itself reports no error on overwrite.
-    if ! GIT_INDEX_FILE="$idx" git -C "$repo" read-tree "$tree_sha" \
-        || ! GIT_INDEX_FILE="$idx" git -C "$repo" \
+    # Populate a disposable index from the tree, materialise it via
+    # checkout-index, then refresh that same index against the extracted
+    # worktree so its stat cache matches the on-disk bytes. The populated
+    # index is kept as a sidecar next to the reference; warm `gh wt add`
+    # copies it into the new linked worktree and skips the ~14 s
+    # `git reset --mixed HEAD` that used to rehash every file after
+    # clonefile. checkout-index (vs `git archive | tar`) also honours the
+    # caseful names stored in the tree — tar would silently collapse
+    # case-fold pairs on APFS/HFS+; _check_case_collisions above remains
+    # the fail-fast guard because checkout-index also reports no error on
+    # overwrite. Cost: one extra full-tree hash during reference build —
+    # paid once per tree SHA and amortised across every warm add.
+    if ! GIT_INDEX_FILE="$pre_index" git -C "$repo" read-tree "$tree_sha" \
+        || ! GIT_INDEX_FILE="$pre_index" git -C "$repo" \
                checkout-index --all --prefix="$tmp/"; then
-        rm -rf "$tmp" "$idx"
+        rm -rf "$tmp"
+        rm -f "$pre_index"
         return 1
     fi
-    rm -f "$idx"
+    GIT_INDEX_FILE="$pre_index" GIT_WORK_TREE="$tmp" \
+        git -C "$repo" update-index --refresh >/dev/null 2>&1 || true
     if ! _atomic_rename_dir "$tmp" "$ref_path" 2>/dev/null; then
         rm -rf "$tmp"
+        rm -f "$pre_index"
         [[ -d "$ref_path" ]] || return 1
+    else
+        mv -f "$pre_index" "${ref_path}.index" 2>/dev/null || rm -f "$pre_index"
     fi
 }
 
@@ -268,11 +279,22 @@ Pass --new to create it from HEAD, set GH_WT_ASSUME_NEW=1 for scripted use, or c
                 || printf '.gh-wt-ref\n' >> "$wt_gitdir"
         fi
 
-        # Working tree already matches HEAD; just sync the index so
-        # `git status` reports a clean tree.
-        git -C "$mountpoint" reset --mixed HEAD >/dev/null 2>&1 || true
-
         configure_worktree_stat "$repo" "$mountpoint"
+
+        # Working tree already matches HEAD; drop in the prebuilt
+        # stat-correct index so `git status` is O(stat()) instead of
+        # O(hash). Falls back to `reset --mixed HEAD` when the sidecar
+        # is missing (reference built by an older gh-wt).
+        local pre_index="${ref_path}.index"
+        local live_index
+        if [[ -f "$pre_index" ]] \
+            && live_index=$(git -C "$mountpoint" rev-parse --git-path index 2>/dev/null) \
+            && [[ -n "$live_index" ]] \
+            && cp -f "$pre_index" "$live_index"; then
+            :
+        else
+            git -C "$mountpoint" reset --mixed HEAD >/dev/null 2>&1 || true
+        fi
 
         echo "worktree ready: $mountpoint"
         echo "  branch:    $branch"
