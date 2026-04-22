@@ -114,9 +114,9 @@ remove_session_dir() {
     esac
 }
 
-# Same rationale for cache references (built by `git archive | tar` as the
-# user on both platforms, so root is only needed if Linux later wrote into
-# the ref via overlay copy-up — which it shouldn't, but be defensive).
+# Same rationale for cache references (built by `git checkout-index` as
+# the user on both platforms, so root is only needed if Linux later wrote
+# into the ref via overlay copy-up — which it shouldn't, but be defensive).
 remove_cache_path() {
     local path="$1"
     case "$(resolve_backend)" in

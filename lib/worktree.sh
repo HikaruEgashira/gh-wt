@@ -69,12 +69,23 @@ build_reference() {
     local repo="$1" tree_sha="$2" ref_path="$3"
     _check_case_collisions "$repo" "$tree_sha" "$(dirname "$ref_path")"
     local tmp="${ref_path}.tmp.$$"
-    rm -rf "$tmp"
+    local idx="${ref_path}.idx.$$"
+    rm -rf "$tmp" "$idx"
     mkdir -p "$tmp"
-    if ! git -C "$repo" archive "$tree_sha" | tar -x -C "$tmp"; then
-        rm -rf "$tmp"
+    # Populate a disposable index from the tree, then materialise it via
+    # checkout-index. Cheaper than `git archive | tar` (no pack → tar → untar
+    # round-trip) and honours the caseful names stored in the tree — tar's
+    # extractor would silently collapse case-fold pairs on APFS/HFS+, while
+    # checkout-index writes exactly the bytes git records. The upstream
+    # case-collision scan (_check_case_collisions) is still the fail-fast
+    # guard because checkout-index itself reports no error on overwrite.
+    if ! GIT_INDEX_FILE="$idx" git -C "$repo" read-tree "$tree_sha" \
+        || ! GIT_INDEX_FILE="$idx" git -C "$repo" \
+               checkout-index --all --prefix="$tmp/"; then
+        rm -rf "$tmp" "$idx"
         return 1
     fi
+    rm -f "$idx"
     if ! _atomic_rename_dir "$tmp" "$ref_path" 2>/dev/null; then
         rm -rf "$tmp"
         [[ -d "$ref_path" ]] || return 1
