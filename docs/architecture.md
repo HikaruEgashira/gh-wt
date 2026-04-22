@@ -123,12 +123,31 @@ index — every worktree is a real linked worktree.
 
 ## `gh wt remove`
 
-1. fzf-select a worktree.
+1. Select a worktree (see "Worktree selection" below).
 2. OverlayFS: check no processes hold files open (`fuser`), unmount.
 3. `git worktree remove --force`.
 4. OverlayFS: `rm -rf <session dir>`.
 
 References are not removed — that's `gh wt gc`'s job.
+
+## Worktree selection
+
+`gh wt remove`, `gh wt -- <cmd>`, and `gh wt <cmd>` all need to pick a
+worktree. The selection path has three layers (in order of preference):
+
+1. **Explicit target**. `gh wt --at <branch|path> ...` (or the
+   positional form on `remove`) bypasses fzf entirely and resolves
+   against `git worktree list --porcelain` via `resolve_worktree_arg`.
+   The argument may be a registered worktree path or the checked-out
+   branch name; mismatches die with "no registered worktree matches".
+2. **`--select-1` short-circuit**. fzf is invoked with `--select-1
+   --exit-0`, so when there's only one candidate (the usual single-dev
+   case) it returns immediately without opening `/dev/tty`.
+3. **Non-interactive guard**. `GH_WT_NONINTERACTIVE=1` refuses to spawn
+   fzf at all and exits 2 with the candidate list on stderr. Intended
+   for CI, `nohup`, and agent-driven shells (e.g. Claude Code) where
+   `/dev/tty` is not available; `--at` is usually the better fix, this
+   variable is the debug-visibility lever.
 
 ## `gh wt gc`
 

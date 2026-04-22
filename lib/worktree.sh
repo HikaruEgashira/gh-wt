@@ -346,7 +346,28 @@ select_session() {
     list=$(git -C "$repo" worktree list --porcelain \
         | awk '/^worktree / { print substr($0, 10) }')
     [[ -n "$list" ]] || { echo "no worktrees" >&2; return 1; }
-    fzf --prompt="$prompt" <<<"$list"
+    # --select-1 short-circuits fzf when there's only one candidate (no
+    # UI, no /dev/tty open) — covers the 80 % daily case where the user
+    # has just one worktree besides main, or an --at would be redundant.
+    # --exit-0 mirrors the empty-list guard above defensively.
+    fzf --prompt="$prompt" --select-1 --exit-0 <<<"$list"
+}
+
+# Bail with a helpful error when select_session cannot prompt — set when
+# stdin is not a TTY (CI, nohup, agent-driven shells like Claude Code)
+# or the user has explicitly opted out via GH_WT_NONINTERACTIVE=1. Prints
+# the candidate list so the caller can re-invoke with --at <branch|path>.
+_require_interactive_or_die() {
+    local repo="$1"
+    if [[ "${GH_WT_NONINTERACTIVE:-}" == "1" ]]; then
+        {
+            echo "gh-wt: GH_WT_NONINTERACTIVE=1 — refusing to spawn fzf."
+            echo "candidate worktrees (pass --at <branch|path> to pick):"
+            git -C "$repo" worktree list --porcelain 2>/dev/null \
+                | awk '/^worktree / { print "  " substr($0, 10) }'
+        } >&2
+        exit 2
+    fi
 }
 
 _list_worktree_paths() {
@@ -391,6 +412,7 @@ cmd_remove() {
         selected=$(resolve_worktree_arg "$repo" "$arg") \
             || die "no registered worktree matches: $arg"
     else
+        _require_interactive_or_die "$repo"
         selected=$(select_session "$repo" "remove: ") || return 0
     fi
     [[ -n "$selected" ]] || return 0
@@ -422,18 +444,32 @@ cmd_remove() {
 }
 
 cmd_exec_in() {
+    local target="${1:-}"; shift || true
     local repo selected
     repo=$(require_main_repo)
-    selected=$(select_session "$repo") || return 0
+    if [[ -n "$target" ]]; then
+        selected=$(resolve_worktree_arg "$repo" "$target") \
+            || die "no registered worktree matches: $target"
+    else
+        _require_interactive_or_die "$repo"
+        selected=$(select_session "$repo") || return 0
+    fi
     [[ -n "$selected" ]] || return 0
     cd "$selected" || die "cannot cd into $selected"
     exec "$@"
 }
 
 cmd_exec_with() {
+    local target="${1:-}"; shift || true
     local repo selected
     repo=$(require_main_repo)
-    selected=$(select_session "$repo") || return 0
+    if [[ -n "$target" ]]; then
+        selected=$(resolve_worktree_arg "$repo" "$target") \
+            || die "no registered worktree matches: $target"
+    else
+        _require_interactive_or_die "$repo"
+        selected=$(select_session "$repo") || return 0
+    fi
     [[ -n "$selected" ]] || return 0
     exec "$@" "$selected"
 }

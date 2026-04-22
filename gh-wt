@@ -22,10 +22,28 @@ Usage:
   gh wt remove [target]      Remove a worktree; target may be a path or a
                              branch name. Omit to pick via fzf.
   gh wt gc                   Delete unreferenced cache entries
-  gh wt -- <command>         Run <command> inside the selected worktree
-  gh wt <command>            Run <command> with the selected worktree path as arg
+  gh wt [--at <wt>] -- <cmd> Run <cmd> inside the selected worktree
+  gh wt [--at <wt>] <cmd>    Run <cmd> with the selected worktree path as arg
+
+Selection (for the last two forms and `gh wt remove`):
+  --at <branch|path>         Bypass fzf — resolve <wt> against the registered
+                             worktree list. Required in non-interactive runs.
+  GH_WT_NONINTERACTIVE=1     Refuse to spawn fzf; print candidates + exit 2.
+                             fzf still short-circuits when there's only one
+                             worktree even without these (--select-1).
 EOF
 }
+
+# --at <wt> may appear before the subcommand to pin the selection without
+# fzf. Strip it from argv so the case-statement below still sees the bare
+# subcommand. Two-pass parse (here + per-cmd) keeps the existing positional
+# layouts untouched.
+target=""
+if [[ "${1:-}" == "--at" ]]; then
+    [[ $# -ge 2 ]] || { echo "gh-wt: --at requires <branch|path>" >&2; exit 1; }
+    target="$2"
+    shift 2
+fi
 
 cmd="${1:-}"
 case "$cmd" in
@@ -33,30 +51,35 @@ case "$cmd" in
         usage
         ;;
     add)
+        [[ -z "$target" ]] || { echo "gh-wt: --at is not valid with 'add'" >&2; exit 1; }
         shift
         require_env
         cmd_add "$@"
         ;;
     list)
+        [[ -z "$target" ]] || { echo "gh-wt: --at is not valid with 'list'" >&2; exit 1; }
         require_env
         cmd_list
         ;;
     remove | rm)
         shift
         require_env
+        # --at <x> for remove == positional target; if both given, --at wins.
+        if [[ -n "$target" ]]; then set -- "$target" "$@"; fi
         cmd_remove "$@"
         ;;
     gc)
+        [[ -z "$target" ]] || { echo "gh-wt: --at is not valid with 'gc'" >&2; exit 1; }
         require_env
         cmd_gc
         ;;
     --)
         shift
         require_env
-        cmd_exec_in "$@"
+        cmd_exec_in "$target" "$@"
         ;;
     *)
         require_env
-        cmd_exec_with "$@"
+        cmd_exec_with "$target" "$@"
         ;;
 esac
