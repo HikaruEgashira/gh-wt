@@ -16,6 +16,20 @@ tree_sha_for_branch() {
     git -C "$repo" rev-parse --verify "$branch^{tree}" 2>/dev/null
 }
 
+# Returns the path of the worktree that currently has `refs/heads/<branch>`
+# checked out, or empty if the branch is not checked out anywhere. We parse
+# `git worktree list --porcelain` instead of `git config --file` because the
+# linked-worktree config is not the source of truth for the checked-out
+# branch — git's porcelain enumeration is.
+_branch_in_use_worktree() {
+    local repo="$1" branch="$2"
+    git -C "$repo" worktree list --porcelain 2>/dev/null \
+        | awk -v b="refs/heads/$branch" '
+            /^worktree / { wt = substr($0, 10) }
+            $0 == "branch " b { print wt; exit }
+          '
+}
+
 # Atomic directory rename via rename(2). GNU `mv -T` isn't on macOS BSD mv;
 # Perl's rename() is portable (ships in base macOS and every Linux distro)
 # and uses renameat2/rename(2) underneath — replaces empty target dir,
@@ -103,7 +117,26 @@ cmd_add() {
     repo=$(require_main_repo)
     check_repo_sanity "$repo"
 
-    case "$(resolve_branch "$repo" "$branch")" in
+    local kind
+    kind=$(resolve_branch "$repo" "$branch")
+
+    # Fail fast on preconditions that `git worktree add` would reject later
+    # anyway. Doing this *before* `build_reference` keeps ~$(du ref) of cache
+    # bytes from being written for a run that was never going to succeed
+    # (e.g. branch already checked out in another worktree).
+    if [[ "$kind" == "local" ]]; then
+        local in_use
+        in_use=$(_branch_in_use_worktree "$repo" "$branch")
+        if [[ -n "$in_use" ]]; then
+            die "branch '$branch' is already checked out at $in_use"
+        fi
+    fi
+
+    [[ -n "$mountpoint" ]] || mountpoint=$(default_mountpoint "$repo" "$branch")
+    mountpoint=$(canonical_path "$mountpoint")
+    [[ ! -e "$mountpoint" ]] || die "mountpoint already exists: $mountpoint"
+
+    case "$kind" in
         local) ;;
         remote)
             git -C "$repo" branch --track "$branch" "origin/$branch" >/dev/null
@@ -115,10 +148,6 @@ cmd_add() {
     esac
 
     check_branch_no_submodules "$repo" "$branch"
-
-    [[ -n "$mountpoint" ]] || mountpoint=$(default_mountpoint "$repo" "$branch")
-    mountpoint=$(canonical_path "$mountpoint")
-    [[ ! -e "$mountpoint" ]] || die "mountpoint already exists: $mountpoint"
 
     if [[ "$(resolve_backend)" == "apfs" ]]; then
         local tree_sha
