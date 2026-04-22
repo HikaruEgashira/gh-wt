@@ -16,6 +16,20 @@ tree_sha_for_branch() {
     git -C "$repo" rev-parse --verify "$branch^{tree}" 2>/dev/null
 }
 
+# Returns the path of the worktree that currently has `refs/heads/<branch>`
+# checked out, or empty if the branch is not checked out anywhere. We parse
+# `git worktree list --porcelain` instead of `git config --file` because the
+# linked-worktree config is not the source of truth for the checked-out
+# branch — git's porcelain enumeration is.
+_branch_in_use_worktree() {
+    local repo="$1" branch="$2"
+    git -C "$repo" worktree list --porcelain 2>/dev/null \
+        | awk -v b="refs/heads/$branch" '
+            /^worktree / { wt = substr($0, 10) }
+            $0 == "branch " b { print wt; exit }
+          '
+}
+
 # Atomic directory rename via rename(2). GNU `mv -T` isn't on macOS BSD mv;
 # Perl's rename() is portable (ships in base macOS and every Linux distro)
 # and uses renameat2/rename(2) underneath — replaces empty target dir,
@@ -95,15 +109,95 @@ configure_worktree_stat() {
     git -C "$mountpoint" config --worktree core.trustctime false
 }
 
+_usage_add() {
+    die "usage: gh wt add [--new|-b] <branch> [path]"
+}
+
+# Decide whether to materialise a branch that neither exists locally nor
+# matches a remote-tracking ref. Silent creation from HEAD is a footgun
+# (typo 'mian' → new branch 'mian'); require explicit opt-in via flag,
+# env var, or interactive [y/N] confirmation on a TTY.
+_confirm_new_branch() {
+    local branch="$1" allow_new="$2"
+    [[ "$allow_new" -eq 1 ]] && return 0
+    [[ "${GH_WT_ASSUME_NEW:-}" == "1" ]] && return 0
+    if [[ -t 0 && -t 2 ]]; then
+        local reply
+        printf "[gh-wt] branch '%s' does not exist. Create new from HEAD? [y/N] " \
+            "$branch" >&2
+        read -r reply || reply=""
+        case "$reply" in
+            y|Y|yes|YES|Yes) return 0 ;;
+        esac
+    fi
+    return 1
+}
+
 cmd_add() {
-    local branch="${1:-}" mountpoint="${2:-}"
-    [[ -n "$branch" ]] || die "usage: gh wt add <branch> [path]"
+    local branch="" mountpoint="" allow_new=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --new|-b) allow_new=1; shift ;;
+            --) shift
+                # End-of-options marker: remaining argv are positionals,
+                # filling whichever positional slots are still empty. Must
+                # not clobber a branch already supplied before `--` —
+                # `gh wt add foo -- bar` means branch=foo, mountpoint=bar,
+                # not the other way around.
+                while [[ $# -gt 0 ]]; do
+                    if [[ -z "$branch" ]]; then branch="$1"
+                    elif [[ -z "$mountpoint" ]]; then mountpoint="$1"
+                    else _usage_add
+                    fi
+                    shift
+                done
+                break
+                ;;
+            -*) die "unknown flag: $1 (usage: gh wt add [--new|-b] <branch> [path])" ;;
+            *)
+                if [[ -z "$branch" ]]; then branch="$1"
+                elif [[ -z "$mountpoint" ]]; then mountpoint="$1"
+                else _usage_add
+                fi
+                shift
+                ;;
+        esac
+    done
+    [[ -n "$branch" ]] || _usage_add
 
     local repo
     repo=$(require_main_repo)
     check_repo_sanity "$repo"
 
-    case "$(resolve_branch "$repo" "$branch")" in
+    local kind
+    kind=$(resolve_branch "$repo" "$branch")
+
+    # Block silent branch creation *before* any other work: if the user
+    # typo'd a branch name and hits a non-interactive shell, we'd rather
+    # die with a hint than create 'mian' from HEAD and build its cache.
+    if [[ "$kind" == "new" ]]; then
+        _confirm_new_branch "$branch" "$allow_new" || die \
+"branch '$branch' does not exist locally or on origin.
+Pass --new to create it from HEAD, set GH_WT_ASSUME_NEW=1 for scripted use, or check for a typo."
+    fi
+
+    # Fail fast on preconditions that `git worktree add` would reject later
+    # anyway. Doing this *before* `build_reference` keeps ~$(du ref) of cache
+    # bytes from being written for a run that was never going to succeed
+    # (e.g. branch already checked out in another worktree).
+    if [[ "$kind" == "local" ]]; then
+        local in_use
+        in_use=$(_branch_in_use_worktree "$repo" "$branch")
+        if [[ -n "$in_use" ]]; then
+            die "branch '$branch' is already checked out at $in_use"
+        fi
+    fi
+
+    [[ -n "$mountpoint" ]] || mountpoint=$(default_mountpoint "$repo" "$branch")
+    mountpoint=$(canonical_path "$mountpoint")
+    [[ ! -e "$mountpoint" ]] || die "mountpoint already exists: $mountpoint"
+
+    case "$kind" in
         local) ;;
         remote)
             git -C "$repo" branch --track "$branch" "origin/$branch" >/dev/null
@@ -115,10 +209,6 @@ cmd_add() {
     esac
 
     check_branch_no_submodules "$repo" "$branch"
-
-    [[ -n "$mountpoint" ]] || mountpoint=$(default_mountpoint "$repo" "$branch")
-    mountpoint=$(canonical_path "$mountpoint")
-    [[ ! -e "$mountpoint" ]] || die "mountpoint already exists: $mountpoint"
 
     if [[ "$(resolve_backend)" == "apfs" ]]; then
         local tree_sha
@@ -256,7 +346,28 @@ select_session() {
     list=$(git -C "$repo" worktree list --porcelain \
         | awk '/^worktree / { print substr($0, 10) }')
     [[ -n "$list" ]] || { echo "no worktrees" >&2; return 1; }
-    fzf --prompt="$prompt" <<<"$list"
+    # --select-1 short-circuits fzf when there's only one candidate (no
+    # UI, no /dev/tty open) — covers the 80 % daily case where the user
+    # has just one worktree besides main, or an --at would be redundant.
+    # --exit-0 mirrors the empty-list guard above defensively.
+    fzf --prompt="$prompt" --select-1 --exit-0 <<<"$list"
+}
+
+# Bail with a helpful error when select_session cannot prompt — set when
+# stdin is not a TTY (CI, nohup, agent-driven shells like Claude Code)
+# or the user has explicitly opted out via GH_WT_NONINTERACTIVE=1. Prints
+# the candidate list so the caller can re-invoke with --at <branch|path>.
+_require_interactive_or_die() {
+    local repo="$1"
+    if [[ "${GH_WT_NONINTERACTIVE:-}" == "1" ]]; then
+        {
+            echo "gh-wt: GH_WT_NONINTERACTIVE=1 — refusing to spawn fzf."
+            echo "candidate worktrees (pass --at <branch|path> to pick):"
+            git -C "$repo" worktree list --porcelain 2>/dev/null \
+                | awk '/^worktree / { print "  " substr($0, 10) }'
+        } >&2
+        exit 2
+    fi
 }
 
 _list_worktree_paths() {
@@ -301,6 +412,7 @@ cmd_remove() {
         selected=$(resolve_worktree_arg "$repo" "$arg") \
             || die "no registered worktree matches: $arg"
     else
+        _require_interactive_or_die "$repo"
         selected=$(select_session "$repo" "remove: ") || return 0
     fi
     [[ -n "$selected" ]] || return 0
@@ -332,18 +444,32 @@ cmd_remove() {
 }
 
 cmd_exec_in() {
+    local target="${1:-}"; shift || true
     local repo selected
     repo=$(require_main_repo)
-    selected=$(select_session "$repo") || return 0
+    if [[ -n "$target" ]]; then
+        selected=$(resolve_worktree_arg "$repo" "$target") \
+            || die "no registered worktree matches: $target"
+    else
+        _require_interactive_or_die "$repo"
+        selected=$(select_session "$repo") || return 0
+    fi
     [[ -n "$selected" ]] || return 0
     cd "$selected" || die "cannot cd into $selected"
     exec "$@"
 }
 
 cmd_exec_with() {
+    local target="${1:-}"; shift || true
     local repo selected
     repo=$(require_main_repo)
-    selected=$(select_session "$repo") || return 0
+    if [[ -n "$target" ]]; then
+        selected=$(resolve_worktree_arg "$repo" "$target") \
+            || die "no registered worktree matches: $target"
+    else
+        _require_interactive_or_die "$repo"
+        selected=$(select_session "$repo") || return 0
+    fi
     [[ -n "$selected" ]] || return 0
     exec "$@" "$selected"
 }
