@@ -1,0 +1,66 @@
+{
+  "skill_name": "gh-wt",
+  "evals": [
+    {
+      "id": "add-basic",
+      "prompt": "I want to spin up a fresh worktree for the branch experiment-a so I can try some stuff without touching my current tree.",
+      "expected_output": "Runs `gh wt add experiment-a` and reports the resulting worktree path.",
+      "assertions": [
+        "The command executed is exactly `gh wt add experiment-a` (no extra flags, no `--`)",
+        "If `gh wt --help` was not verified first and the command fails, the agent runs `gh extension install HikaruEgashira/gh-wt` before retrying",
+        "The final response mentions the worktree path or branch name",
+        "The agent does not fall back to plain `git worktree add`"
+      ]
+    },
+    {
+      "id": "exec-in-agent",
+      "prompt": "Start claude code inside one of my existing worktrees.",
+      "expected_output": "Runs `gh wt -- claude` (interactive fzf-based selection), so claude starts with the worktree as cwd.",
+      "assertions": [
+        "The command executed is `gh wt -- claude` (with the `--` separator)",
+        "The agent does NOT run `gh wt claude` without `--`",
+        "The agent notes that fzf will prompt for selection"
+      ]
+    },
+    {
+      "id": "open-in-editor",
+      "prompt": "Open my experiment-b worktree in VS Code.",
+      "expected_output": "Runs `gh wt code`, which appends the selected worktree path as an argument to `code`.",
+      "assertions": [
+        "The command executed is `gh wt code` (no `--` separator)",
+        "The agent does NOT run `gh wt -- code` (which would cd into the worktree and exec `code .`-less)",
+        "The agent notes that the worktree path is appended to `code`"
+      ]
+    },
+    {
+      "id": "remove-by-branch",
+      "prompt": "Get rid of the feature-auth worktree, I'm done with it.",
+      "expected_output": "Runs `gh wt remove feature-auth` (passes the branch name as target).",
+      "assertions": [
+        "The command executed is `gh wt remove feature-auth`",
+        "The agent does not prompt for interactive fzf selection when a branch name was given",
+        "The agent does not delete the main worktree"
+      ]
+    },
+    {
+      "id": "gc",
+      "prompt": "Free up any disk used by worktree caches I'm not using anymore.",
+      "expected_output": "Runs `gh wt gc` and reports how many reference trees were removed.",
+      "assertions": [
+        "The command executed is exactly `gh wt gc`",
+        "The agent does not run `git gc` (unrelated)",
+        "The agent does not manually rm anything in `~/.cache/gh-wt`"
+      ]
+    },
+    {
+      "id": "clonefile-failure-recovery",
+      "prompt": "I got `apfs clone failed` when running `gh wt add feature-x /Volumes/ExternalSSD/feature-x`. What do I do?",
+      "expected_output": "Diagnoses the cross-volume issue and suggests setting `GH_WT_CACHE_DIR` to a path on the same APFS volume as the target.",
+      "assertions": [
+        "The diagnosis mentions that the target path must be on the same APFS volume as the cache",
+        "The suggested fix sets `GH_WT_CACHE_DIR` to a directory on `/Volumes/ExternalSSD`",
+        "The agent does not suggest switching away from `gh wt` or falling back to `git worktree add` as the primary fix"
+      ]
+    }
+  ]
+}

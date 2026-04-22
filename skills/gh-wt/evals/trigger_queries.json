@@ -1,0 +1,23 @@
+[
+  { "query": "I need to run three claude agents on three different feature branches without re-cloning the repo each time.", "should_trigger": true },
+  { "query": "spin up a fresh checkout of pr-123 alongside my current main so I can build it without switching.", "should_trigger": true },
+  { "query": "open the feature-auth branch in a separate working directory, I don't want to stash my changes.", "should_trigger": true },
+  { "query": "I want to benchmark 5 commits of this repo at once. what's the cheapest way to get 5 checkouts?", "should_trigger": true },
+  { "query": "remove that stale worktree I made yesterday for the hotfix branch.", "should_trigger": true },
+  { "query": "run npm test in a separate checkout without touching what I'm working on right now.", "should_trigger": true },
+  { "query": "clean up any cached reference trees on disk that nothing is using anymore.", "should_trigger": true },
+  { "query": "show me all the linked working trees for this repo.", "should_trigger": true },
+  { "query": "I want to try this patch in an isolated copy of the repo; keep my dirty tree alone.", "should_trigger": true },
+  { "query": "give me another checkout of main so I can run the build there while I edit here.", "should_trigger": true },
+
+  { "query": "create a new branch called feature-auth off main.", "should_trigger": false },
+  { "query": "I need to clone a fresh copy of the HikaruEgashira/gh-wt repo from GitHub.", "should_trigger": false },
+  { "query": "list all branches in this repo, including remote ones.", "should_trigger": false },
+  { "query": "what's the conceptual difference between `git worktree` and `git clone`?", "should_trigger": false },
+  { "query": "delete the feature-auth branch — both local and remote.", "should_trigger": false },
+  { "query": "how much disk space is my .git directory using?", "should_trigger": false },
+  { "query": "switch my current checkout to the feature-auth branch.", "should_trigger": false },
+  { "query": "run `git gc --aggressive` to clean up unreachable objects.", "should_trigger": false },
+  { "query": "open main.py in VS Code.", "should_trigger": false },
+  { "query": "install the github cli on this mac.", "should_trigger": false }
+]
