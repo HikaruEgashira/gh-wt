@@ -37,7 +37,8 @@ picks what works.
 | other        | Plain `git worktree add`, no sharing | —                  |
 
 `lib/worktree.sh::cmd_add` branches on the resolved strategy; the three
-paths share the reference-cache build step (`git archive | tar`).
+paths share the reference-cache build step (`git checkout-index` into a
+disposable index built from the target tree).
 
 ### Preflight order
 
@@ -91,15 +92,27 @@ serialise for debugging or single-core hosts).
 
 APFS volumes are case-insensitive by default. Trees that contain paths
 differing only in case (`xt_CONNMARK.h` and `xt_connmark.h` in the linux
-kernel, ~13 such pairs) cannot be losslessly extracted by `git archive |
-tar -x`: one path silently overwrites the other and every worktree
-cloned from the resulting reference inherits the corruption.
+kernel, ~13 such pairs) cannot be losslessly materialised onto a
+case-insensitive volume — the second write silently overwrites the
+first and every worktree cloned from the resulting reference inherits
+the corruption. `git checkout-index` (used to extract the tree, see
+below) does not raise an error on such overwrites either, so the guard
+has to be up-front.
 
 `build_reference` probes the cache volume for case-insensitivity (one
 file create + one stat) and, if positive, scans the tree for case-fold
 duplicates before extraction. Any duplicates → `die` with the offending
 paths. Case-sensitive volumes (Linux ext4/btrfs/xfs, opt-in
 case-sensitive APFS) skip the scan entirely.
+
+Extraction itself uses `git read-tree` into a disposable index
+(`GIT_INDEX_FILE=<tmp>.idx`) followed by
+`git checkout-index --all --prefix=<tmp>/`. Compared with the earlier
+`git archive <tree> | tar -x -C <tmp>` pipeline this skips the
+pack-format round-trip (git builds a tar stream, tar parses it back
+into files) and writes exactly the path names and modes recorded in
+the tree, including the executable bit and symlink entries (via
+`core.symlinks`).
 
 Semantics vs OverlayFS:
 - No separate upper/workdir — the worktree is the only materialised copy.

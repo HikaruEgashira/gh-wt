@@ -127,9 +127,14 @@ Breakdown of the same runs (user + sys CPU; real time in parentheses):
   cores share the work. Peak RSS is much lower (190 MiB) because no
   object unpacking happens in the gh-wt path; all block sharing is
   filesystem-level.
-- `gh wt add` (cold) adds `git archive | tar -x` to build the
-  read-only reference plus the case-collision scan — that's the ~17 s
-  delta between cold and warm.
+- `gh wt add` (cold) adds `git read-tree` + `git checkout-index
+  --prefix` to build the read-only reference plus the case-collision
+  scan — that's the ~17 s delta between cold and warm on this N = 5
+  measurement run. The reference-build step was converted from
+  `git archive | tar -x` to a disposable-index checkout-index on
+  2026-04-22 (~2 s saving plus case-aware extraction); the headline
+  ~17 s figure here is from the prior pipeline and will be re-measured
+  by the next N ≥ 20 pass (§3 critical-path item).
 - The **post-clonefile `git reset --mixed HEAD`** (refresh the index so
   `git status` is clean against the cloned working tree) is itself
   ~14 s on this scale — git's own warning suggests `--no-refresh`, but
@@ -343,9 +348,13 @@ pass needed.
   parallelism), (b) ~14 s of `git reset --mixed HEAD` post-clonefile
   (avoidable with a stat-correct prebuilt index, deferred until a
   native helper exists), (c) ~17 s of cold-only reference build
-  (avoidable on cold by switching from `git archive | tar` to
-  `git checkout-index --prefix=`, ~2 s saving with side benefit of
-  case-aware extraction). Sub-second worktree creation requires
+  (already reduced on 2026-04-22 by switching from
+  `git archive | tar` to `git read-tree` + `git checkout-index
+  --prefix=`, ~2 s measured saving with side benefit of case-aware
+  extraction; further gains would require overlapping the reference
+  build with the clonefile phase, which costs a live-ref sidecar
+  before the ref rename is atomic — deferred). Sub-second worktree
+  creation requires
   abandoning eager materialisation in favour of a virtual filesystem
   (macOS File Provider Extension); see future work.
 
