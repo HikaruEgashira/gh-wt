@@ -1,17 +1,13 @@
 name: CI
-
 on:
   push:
     branches: [main]
   pull_request:
-
 permissions:
   contents: read
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   shell-lint:
     name: shell lint
@@ -19,10 +15,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        timeout-minutes: 5
         with:
           persist-credentials: false
-
       - name: bash -n (syntax)
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -30,8 +27,8 @@ jobs:
           for f in lib/*.sh; do
             bash -n "$f"
           done
-
       - name: shellcheck
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           shopt -s nullglob
