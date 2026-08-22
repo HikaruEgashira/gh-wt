@@ -16,7 +16,7 @@ below) on an idle system.
 | OS        | macOS 26.3 (Darwin 25.3.0) |
 | Filesystem | APFS on internal SSD (case-insensitive default) |
 | git       | 2.53.0 |
-| gh-wt     | HEAD of this repo (post case-collision guard + parallel clonefile) |
+| gh-wt     | HEAD of this repo (post stat-correct index prebuild + parallel clonefile) |
 
 ### 1.2 Target repository
 
@@ -90,24 +90,27 @@ effect size.
 ```
             0s          15s         30s         45s         60s
             |-----------|-----------|-----------|-----------|
-  baseline  ██████████▏                                         15.17 ± 0.44
-  ghwt warm █████████████████████████████▌                     44.44 ± 0.97
-  ghwt cold █████████████████████████████████████████          61.54 ± 1.11
+  baseline  ████████████▍                                    15.52 ± 1.06
+  ghwt warm ███████████████▎                                 19.16 ± 0.22
+  ghwt cold ███████████████████████████████████████████████▏ 58.93 ± 1.22
             |-----------|-----------|-----------|-----------|
             0           15          30          45          60
 ```
 
 | Condition | n | mean (s) | sd | median | min | max | 95 % CI |
 | --------- | -: | -------: | -: | -----: | --: | --: | ------: |
-| baseline (git worktree add) | 5 | **15.170** | 0.356 | 14.980 | 14.900 | 15.720 | ±0.442 |
-| gh-wt cold (ref + clonefile) | 5 | **61.538** | 0.897 | 61.600 | 60.240 | 62.440 | ±1.114 |
-| gh-wt warm (clonefile only)  | 5 | **44.444** | 0.778 | 44.460 | 43.330 | 45.500 | ±0.965 |
+| baseline (git worktree add) | 5 | **15.520** | 0.857 | 15.310 | 14.890 | 17.010 | ±1.064 |
+| gh-wt cold (ref + clonefile) | 5 | **58.926** | 0.980 | 59.170 | 57.610 | 60.240 | ±1.217 |
+| gh-wt warm (clonefile only)  | 5 | **19.162** | 0.181 | 19.150 | 18.970 | 19.360 | ±0.224 |
 
 **Read:** for a single `add` on a 174 k-file, 2.42 GiB working tree,
-`git worktree add` takes ~15 s; `gh wt add` takes ~44 s warm and ~62 s
-cold. gh-wt is **2.9× / 4.1× slower** than the baseline in these
-conditions (down from 3.7× / 4.7× before parallel clonefile landed).
-The speed cost is not the win — see §2.3 for the win.
+`git worktree add` takes ~15.5 s; `gh wt add` takes ~19 s warm and ~59 s
+cold. gh-wt is **1.23× / 3.80× slower** than the baseline in these
+conditions. Warm is now within ~25 % of `git worktree add` on this
+corpus — the ~14 s `git reset --mixed HEAD` step that used to dominate
+the warm path was eliminated on 2026-04-22 by prebuilding a stat-correct
+index during reference build (§2.2). The speed cost of cold is not the
+win — see §2.3 for the win.
 
 ### 2.2 Where does gh-wt's time go?
 
@@ -115,64 +118,55 @@ Breakdown of the same runs (user + sys CPU; real time in parentheses):
 
 | Condition | user (s) | sys (s) | real (s) | peak RSS (MiB) |
 | --------- | -------: | ------: | -------: | -------------: |
-| baseline  | 2.87 | 11.27 | 15.17 | 532 |
-| gh-wt warm | 5.29 | 46.85 | 44.44 | 190 |
-| gh-wt cold | 9.63 | 64.70 | 61.54 | 550 |
+| baseline  | 2.91 | 11.48 | 15.52 | 534 |
+| gh-wt warm | 0.35 | 39.30 | 19.16 | 8 |
+| gh-wt cold | 8.62 | 58.64 | 58.93 | 529 |
 
 - `git worktree add` is dominated by `sys` time (checkout I/O) and peaks
-  at ~532 MiB RSS (git's object + index machinery).
+  at ~534 MiB RSS (git's object + index machinery).
 - `gh wt add` (warm) issues one `clonefile(2)` per file in the tree via
   `cp -cRp`, parallelised across `P=4` top-level entries by default.
-  Aggregated kernel time (~47 s) exceeds wall clock (~44 s) because four
-  cores share the work. Peak RSS is much lower (190 MiB) because no
-  object unpacking happens in the gh-wt path; all block sharing is
-  filesystem-level.
-- `gh wt add` (cold) adds `git read-tree` + `git checkout-index
-  --prefix` to build the read-only reference plus the case-collision
-  scan — that's the ~17 s delta between cold and warm on this N = 5
-  measurement run. The reference-build step was converted from
-  `git archive | tar -x` to a disposable-index checkout-index on
-  2026-04-22 (~2 s saving plus case-aware extraction); the headline
-  ~17 s figure here is from the prior pipeline and will be re-measured
-  by the next N ≥ 20 pass (§3 critical-path item).
-- The **post-clonefile `git reset --mixed HEAD`** (refresh the index so
-  `git status` is clean against the cloned working tree) used to be
-  ~14 s on this scale. It is now **elided on the warm path**: reference
-  build precomputes a stat-correct index (via `read-tree` +
-  `update-index --refresh` against the just-extracted reference) and
-  parks it next to the reference as `<tree-sha>.index`. Warm add copies
-  that sidecar into the linked worktree's `index` path — O(21 MiB
-  `cp`), ~O(ms) — and `core.checkStat=minimal` + APFS `cp -cRp`
-  (preserved mtime/size) keep stat-cache hits valid for all 174 k
-  entries. On this corpus the swap lands warm add at **~18.8 s real**
-  (from 44.4 s), and the first post-add `git status` is ~1.4 s on a
-  clean tree. Fallback: if the sidecar is absent (e.g. reference built
-  by an older gh-wt) the old `reset --mixed HEAD` path runs and the
-  tree is still clean, just ~25 s slower.
+  Aggregated kernel time (~39 s) exceeds wall clock (~19 s) because four
+  cores share the work. Peak RSS as reported by `/usr/bin/time` is just
+  the gh-wt shell wrapper plus its directly-waited children; no git
+  object unpacking happens in the warm path, and the `cp -cRp` fan-out
+  is grandchild-level so its RSS is not aggregated. All block sharing
+  is filesystem-level.
+- `gh wt add` (cold) adds the reference build — `git read-tree` +
+  `git checkout-index --prefix=` into a disposable index, followed by
+  the case-collision scan — and that is what the ~40 s delta between
+  cold and warm pays for on a fresh cache.
+- The previously-dominant **post-clonefile `git reset --mixed HEAD`**
+  step is **gone**: reference build now precomputes a stat-correct
+  index (via `read-tree` + `update-index --refresh` against the
+  just-extracted reference) and parks it next to the reference as
+  `<tree-sha>.index`. Warm add copies that sidecar into the linked
+  worktree's `index` — O(21 MiB `cp`), ~O(ms) — and
+  `core.checkStat=minimal` + APFS `cp -cRp` (preserved mtime/size)
+  keep stat-cache hits valid for all 174 k entries. That dropped warm
+  `add` from ~44 s to ~19 s on this corpus, and the first post-add
+  `git status` is ~1.4 s on a clean tree. Fallback: if the sidecar is
+  absent (e.g. reference built by an older gh-wt) the old `reset --mixed
+  HEAD` path runs and the tree is still clean, just ~25 s slower.
 
 ### 2.3 Storage — the reason gh-wt exists
 
 #### 2.3.1 Same-tree footprint and scaling
 
 k worktrees all at the same commit, measured as `df` delta (bytes
-actually allocated on the volume). The numbers below were collected on
-the same APFS host but on an earlier (linux kernel, 1.77 GiB) target;
-they are presented as the canonical illustration of the CoW property.
-The behaviour is invariant of the target tree size:
+actually allocated on the volume). Measured on llvm-project
+(`scripts/benchmark/results/same_tree.tsv`):
 
 | k | baseline (KiB) | baseline (GiB) | gh-wt APFS (KiB) | gh-wt (GiB) | ratio |
 | -: | -------------: | -------------: | ---------------: | ----------: | -----: |
-|  1 |  1 824 616 | 1.74 |  1 863 504 | 1.78 | **1.02×** |
-|  2 |  3 646 616 | 3.48 |  1 908 484 | 1.82 | **0.52×** |
-|  5 |  9 125 732 | 8.70 |  2 049 480 | 1.95 | **0.22×** |
-| 10 | 18 247 096 | 17.4 |  2 265 844 | 2.16 | **0.12×** |
-| 15 | —          | —    |  2 504 632 | 2.39 | — |
-| 20 | —          | —    |  2 710 772 | 2.58 | — |
+|  1 |  2 646 484 | 2.52 |  2 740 588 | 2.61 | **1.04×** |
+|  3 |  7 937 408 | 7.57 |  2 933 464 | 2.80 | **0.37×** |
+|  5 | 13 230 228 | 12.62 |  3 123 296 | 2.98 | **0.24×** |
 
-**Empirical linear fit for gh-wt (least-squares over all six k points):**
+**Empirical linear fit for gh-wt (least-squares over k ∈ {1, 3, 5}):**
 
 ```
-disk_gh-wt(k) ≈ 1 778 MiB + 43.8 MiB · k      (R² ≈ 1.00)
+disk_gh-wt(k) ≈ 2 583 MiB + 93.4 MiB · k      (R² ≈ 1.00)
 ```
 
 - The **intercept** is essentially one copy of the working tree —
@@ -180,18 +174,20 @@ disk_gh-wt(k) ≈ 1 778 MiB + 43.8 MiB · k      (R² ≈ 1.00)
 - The **slope** is pure APFS clonefile overhead: inode + directory-entry
   metadata for every file, with file blocks shared. There is no
   per-worktree content cost.
-- Baseline's slope is the *whole working tree* per extra worktree, i.e.
-  **~41× steeper**.
+- Baseline's slope is the *whole working tree* per extra worktree
+  (~2 583 MiB), i.e. **~28× steeper**.
 
 Crossover (k where gh-wt becomes cheaper than baseline): `k ≥ 2`. At
-k = 10 the measured ratio is **0.12×** (~8× less disk); extrapolating
-to k = 20 gives ~13×.
+k = 5 the measured ratio is **0.24×** (~4× less disk); extrapolating
+the fit to k = 10 gives ~0.14× (~7× less), and to k = 20 gives
+~0.09× (~11× less).
 
-The same-tree property scales with **`O(extra_worktrees × ~44 MiB)`**
-regardless of the underlying tree's size. For llvm-project (174 k files,
-2.42 GiB working tree) the per-worktree marginal would land near
-~80–90 MiB on a tree this size — but the headline ratio (~0.1× at k≥10)
-is unchanged because both numerator and denominator scale with tree size.
+The same-tree property scales with **`O(extra_worktrees × ~93 MiB)`**
+on llvm-scale trees; the per-worktree marginal tracks tree metadata
+volume (linux-scale trees see ~44 MiB/worktree — see the
+`torvalds/linux` historical run in an earlier revision of this doc),
+but the headline ratio (~0.1× at k≥10) is tree-size-invariant because
+both numerator and denominator scale with tree size.
 
 #### 2.3.2 Distinct-tree footprint (worst case)
 
@@ -200,16 +196,17 @@ llvm-project as `df` delta (in `scripts/benchmark/results/df_footprint.tsv`):
 
 | k | baseline (KiB) | baseline (GiB) | gh-wt APFS (KiB) | gh-wt (GiB) | Δ (KiB) | ratio |
 | -: | -------------: | -------------: | ---------------: | ----------: | ------: | ----: |
-| 1 |  2 646 340 | 2.52 |  2 722 092 | 2.60 |  +75 752 | 1.03× |
-| 3 |  7 936 372 | 7.57 |  8 175 596 | 7.80 | +239 224 | 1.03× |
-| 5 | 13 227 492 | 12.61 | 13 614 656 | 12.98 | +387 164 | 1.03× |
+| 1 |  2 646 412 | 2.52 |  2 740 612 | 2.61 |  +94 200 | 1.04× |
+| 3 |  7 938 844 | 7.57 |  8 228 628 | 7.85 | +289 784 | 1.04× |
+| 5 | 13 216 568 | 12.60 | 13 709 600 | 13.07 | +493 032 | 1.04× |
 
 Under the **distinct-tree** workload gh-wt is marginally *worse* on
-disk: ~3 % extra (~75 MiB per reference on llvm), because the unpacked
+disk: ~4 % extra (~95 MiB per reference on llvm), because the unpacked
 reference tree is stored alongside git's own packed objects, and
 clonefile cannot dedup across distinct tree SHAs. The overhead is
-constant per reference (the difference between what `git archive | tar`
-materialises and what the packed `.git/objects` already had).
+constant per reference (the difference between what
+`git checkout-index --prefix=` materialises and what the packed
+`.git/objects` already had).
 
 This is the honest worst case. gh-wt's value proposition is the
 same-tree (or near-same-tree) case: §2.3.1.
@@ -255,18 +252,18 @@ same HEAD and times only the removal.
 
 | Operation | n | mean (s) | sd | 95 % CI |
 | --------- | -: | -------: | -: | ------: |
-| `git worktree remove --force` (baseline)          | 5 | **7.926** | 0.096 | ±0.119 |
-| `git worktree remove --force` on a gh-wt APFS wt  | 5 | **7.624** | 0.049 | ±0.061 |
+| `git worktree remove --force` (baseline)          | 5 | **7.914** | 0.060 | ±0.075 |
+| `git worktree remove --force` on a gh-wt APFS wt  | 5 | **7.404** | 0.027 | ±0.034 |
 
 ```
                  0s             4s             8s
                  |------|-------|------|-------|
-  baseline       ████████████████████▏          7.93 ± 0.12
-  gh-wt (APFS)   ███████████████████▏           7.62 ± 0.06
+  baseline       ████████████████████▏          7.91 ± 0.08
+  gh-wt (APFS)   ██████████████████▊            7.40 ± 0.03
                  |------|-------|------|-------|
 ```
 
-**Read:** `remove` on a clonefile-backed tree is ~4 % *faster* than on
+**Read:** `remove` on a clonefile-backed tree is ~6 % *faster* than on
 a fully materialised baseline tree. `unlink(2)` on APFS clonefiles
 only drops the inode's block-sharing reference (no blocks freed until
 the last reference), so removing 174 k clonefiled files is slightly
@@ -276,9 +273,9 @@ Lifecycle totals (add + remove, same-tree scenario):
 
 | Method     | add (s) | remove (s) | **round-trip (s)** |
 | ---------- | ------: | ---------: | -----------------: |
-| baseline   | 15.17   |  7.93 | **23.10** |
-| gh-wt warm | 44.44   |  7.62 | **52.06** (2.25×) |
-| gh-wt cold | 61.54   |  7.62 | **69.16** (2.99×) |
+| baseline   | 15.52   |  7.91 | **23.43** |
+| gh-wt warm | 19.16   |  7.40 | **26.56** (1.13×) |
+| gh-wt cold | 58.93   |  7.40 | **66.33** (2.83×) |
 
 The per-invocation time penalty amortises quickly when worktrees are
 kept around for hours or days of work.
@@ -302,12 +299,12 @@ the total remove cost and the numbers track §2.4 closely.
 
 | Condition | phase | n | mean (s) | sd |
 | --------- | ----- | -: | -------: | -: |
-| baseline  | add    | 5 | 14.984 | 0.434 |
-| baseline  | remove | 5 |  7.944 | 0.138 |
-| gh-wt cold | add    | 5 | 62.194 | 2.464 |
-| gh-wt cold | remove | 5 |  7.714 | 0.080 |
-| gh-wt warm | add    | 5 | 45.472 | 1.573 |
-| gh-wt warm | remove | 5 |  7.564 | 0.044 |
+| baseline  | add    | 5 | 15.154 | 0.880 |
+| baseline  | remove | 5 |  7.814 | 0.063 |
+| gh-wt cold | add    | 5 | 56.020 | 0.373 |
+| gh-wt cold | remove | 5 |  7.432 | 0.048 |
+| gh-wt warm | add    | 5 | 19.260 | 0.261 |
+| gh-wt warm | remove | 5 |  7.762 | 0.326 |
 
 ```bash
 bash scripts/benchmark/lifecycle.sh      # N=5 per condition, all on bench rig
@@ -328,48 +325,45 @@ pass needed.
 
 ## 3. Observations
 
-- **Speed**: `git worktree add` wins on this repo and this hardware, by
-  roughly **3× per invocation** for warm gh-wt (and ~4× for cold).
-  Parallel clonefile (`GH_WT_CLONE_PARALLELISM=4` default) closed about
-  a quarter of the gap that the previous serial implementation showed.
-  If your workflow creates a handful of worktrees, the extra ~30 s per
-  `add` matters more than the disk savings. gh-wt is **not** a speed
-  optimisation.
+- **Speed**: `git worktree add` still wins on this repo and this
+  hardware, but only by **~1.2× per invocation** for warm gh-wt (down
+  from ~3× before the stat-correct-index prebuild landed on
+  2026-04-22) and ~3.8× for cold. Parallel clonefile
+  (`GH_WT_CLONE_PARALLELISM=4` default) and the skipped `reset --mixed`
+  together closed most of the warm-path gap. Even so, if your workflow
+  creates a handful of worktrees, the extra ~4 s (warm) or ~43 s (cold)
+  per `add` matters more than the disk savings. gh-wt is **not** a
+  speed optimisation.
 - **Disk, distinct trees**: gh-wt pays a small overhead (~MiB-class per
   reference) for the privilege of keeping an unpacked reference. If
   every worktree you ever make points at a totally different tree,
   `git worktree add` is the right tool.
 - **Disk, same tree**: this is where gh-wt is designed to pay off. The
-  empirical linear fit (§2.3.1) gives **~44 MiB per additional worktree
-  at linux scale**, i.e. ~2.4 % of that working tree — a reduction of
-  ~41× in the per-worktree marginal cost. The measured k = 10 ratio is
-  0.12× (8× less disk); extrapolating the fit to k = 20 gives ~13×.
-- **Remove**: gh-wt's clonefile worktrees remove ~4 % *faster* than
+  empirical linear fit on llvm (§2.3.1) gives **~93 MiB per additional
+  worktree**, i.e. ~3.6 % of the 2.61 GiB reference — a reduction of
+  ~28× in the per-worktree marginal cost. The measured k = 5 ratio is
+  0.24× (~4× less disk); extrapolating the fit to k = 10 gives ~0.14×
+  (~7× less), and to k = 20 gives ~0.09× (~11× less).
+- **Remove**: gh-wt's clonefile worktrees remove ~6 % *faster* than
   fully materialised ones — one of the only latency metrics where
   gh-wt beats the baseline on a per-op basis (§2.4).
-- **Reproducibility of timings**: baseline and warm/cold are tight
-  (CV ≈ 2 %); the largest variance is on the lifecycle warm-add (CV ≈
-  3.5 %, sd 1.57 s on 45 s mean), still well within the
-  baseline < warm < cold ordering. Remove is the tightest of all
-  (CV < 1 %).
+- **Reproducibility of timings**: all conditions are tight (baseline
+  CV 5.5 %, cold CV 1.7 %, warm CV 0.9 %); remove is the tightest
+  (CV < 1 % dedicated, <= 4 % in lifecycle). The baseline < warm <
+  cold ordering is clean.
 - **Critical path next**: the dominant remaining costs in warm `add`
-  are now (a) ~13 s of `clonefile(2)` (kernel-bound, only beaten by
-  parallelism) and (b) `git worktree add --no-checkout` plus `configure
-  --worktree` book-keeping — together ~5–6 s. The old ~14 s of
-  `git reset --mixed HEAD` post-clonefile is **gone**: a stat-correct
-  index is prebuilt once per tree SHA during reference build (the
-  disposable index used by `git checkout-index --prefix=` is refreshed
-  against the extracted reference and parked as a sidecar) and copied
-  into the linked worktree's `index` at add time. That dropped warm
-  add from 44.4 s to ~18.8 s on this corpus. Cold-only reference
-  build, already reduced on 2026-04-22 by switching from
-  `git archive | tar` to `git read-tree` + `git checkout-index
-  --prefix=` (~2 s saving plus case-aware extraction), is the next
-  target; further gains would require overlapping the reference build
-  with the clonefile phase, which costs a live-ref sidecar before the
-  ref rename is atomic — deferred. Sub-second worktree creation
-  requires abandoning eager materialisation in favour of a virtual
-  filesystem (macOS File Provider Extension); see future work.
+  are (a) ~13 s of `clonefile(2)` (kernel-bound, only beaten by
+  parallelism) and (b) `git worktree add --no-checkout` plus
+  `configure --worktree` book-keeping — together ~5–6 s. The
+  stat-correct-index prebuild already eliminated the old ~14 s
+  `git reset --mixed HEAD`. Cold-only reference build
+  (`git read-tree` + `git checkout-index --prefix=`) remains the next
+  target at ~40 s; further gains would require overlapping the
+  reference build with the clonefile phase, which costs a live-ref
+  sidecar before the ref rename is atomic — deferred. Sub-second
+  worktree creation requires abandoning eager materialisation in
+  favour of a virtual filesystem (macOS File Provider Extension);
+  see future work.
 
 ## 4. Threats to validity
 
@@ -394,17 +388,16 @@ pass needed.
   writer runs asynchronously; a 2 s sleep was inserted before each
   post-measurement read. The footprint numbers are therefore accurate
   to roughly the nearest few MiB.
-- **Same-tree footprint table is from a prior linux-target run.** The
-  property (CoW slope ≈ inode-metadata cost) is invariant of the
-  target. Re-collecting on llvm requires the same-tree variant of the
-  bench harness; it would shift the absolute slope value (~80–90 MiB
-  per worktree on llvm vs ~44 MiB on linux) but not the headline ratio.
+- **Same-tree footprint scan is at k ∈ {1, 3, 5}.** The linear fit
+  (§2.3.1) is high-R² over that range but we do not have direct
+  measurements at k = 10 or k = 20 on llvm; the ratios reported for
+  those are extrapolated from the three-point fit, not measured.
 
 ## 5. Reproducibility
 
 All scripts used to produce the tables above are under
 `scripts/benchmark/` in this repo. The raw TSVs alongside them are
-from the measurement run on 2026-04-21. Full reproduction takes ~40
+from the measurement run on 2026-04-23. Full reproduction takes ~40
 minutes on an M3 (~25 min for the timed conditions, ~5 min for the
 distinct-tree footprint, ~10 min for paired lifecycle).
 
@@ -447,7 +440,7 @@ Override defaults via env vars: `REPO=<path>`, `N=<iterations>`,
 
 ---
 
-_Measured 2026-04-21 on Apple M3 / macOS 26.3 against
+_Measured 2026-04-23 on Apple M3 / macOS 26.3 against
 llvm/llvm-project @ 83f8eee. The exact TSVs from that run are checked in
 under `scripts/benchmark/results/`; the scripts next to them regenerate
 the numbers (writing fresh TSVs to `/private/tmp/ghwt-bench/results/`
