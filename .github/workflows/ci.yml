@@ -28,6 +28,23 @@ jobs:
           for f in lib/*.sh; do
             bash -n "$f"
           done
+      - name: install shellcheck
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          # Self-hosted runners (unlike the ubuntu-* hosted images) do not
+          # guarantee shellcheck is preinstalled. Provision it rather than
+          # dropping the lint, and skip the install when it is already there.
+          if command -v shellcheck >/dev/null 2>&1; then
+            exit 0
+          fi
+          if [[ "$(id -u)" -eq 0 ]]; then
+            apt-get update
+            apt-get install -y shellcheck
+          else
+            sudo apt-get update
+            sudo apt-get install -y shellcheck
+          fi
       - name: shellcheck
         timeout-minutes: 5
         run: |
